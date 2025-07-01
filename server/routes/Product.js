@@ -35,7 +35,7 @@ router.get("/GetProduct/:name", async (req, res) => {
 
 router.use(CheckToken);
 router.post("/AddProduct", async (req, res) => {
-    const { name, price, category, description } = req.body;
+    const { name, price, category, description, freeMinutes } = req.body;
     let imageProduct = req.files && req.files.imageProduct;
     let imageId = null;
 
@@ -69,7 +69,8 @@ router.post("/AddProduct", async (req, res) => {
             category,
             description,
             image: imageProduct ? imageProduct : undefined,
-            imageId
+            imageId,
+            freeMinutes: Number(freeMinutes) || 0,
         })
 
         await newProduct.save()
@@ -84,7 +85,7 @@ router.post("/AddProduct", async (req, res) => {
 
 router.put("/UpdateProduct/:id", async (req, res) => {
     const { id } = req.params;
-    const { name, price, category, description } = req.body;
+    const { name, price, category, description, freeMinutes } = req.body;
     const imageProduct = req.files && req.files.imageProduct;
     let updateProduct = {};
 
@@ -95,6 +96,7 @@ router.put("/UpdateProduct/:id", async (req, res) => {
         updateProduct.price = price;
         updateProduct.category = category;
         updateProduct.description = description;
+        updateProduct.freeMinutes = Number(freeMinutes) || 0;
     }
 
 

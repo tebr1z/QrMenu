@@ -29,6 +29,10 @@ const productSchema =  mongoose.Schema({
         type: String,
         trim: true,
     },
+    freeMinutes: {
+        type: Number,
+        default: 0,
+    },
     createdAt: { type: Date, default: Date.now },
 });
 

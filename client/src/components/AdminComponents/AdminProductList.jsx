@@ -26,6 +26,9 @@ const AdminProductList = ({ product, handleModalToggle }) => {
                 <p className="text-lg font-bold text-gray-700 mt-2">
                     {product.price.toFixed(2)} ₼
                 </p>
+                {product.freeMinutes > 0 && (
+                  <p className="text-sm text-blue-600 font-semibold mt-1">Pulsuz vaxt: {product.freeMinutes} dəqiqə</p>
+                )}
             </div>
             {/* Butonlar */}
             <div className="flex mt-4 space-x-2">

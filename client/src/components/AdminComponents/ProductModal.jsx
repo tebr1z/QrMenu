@@ -25,6 +25,7 @@ const ProductModal = ({ isOpen, handleModalToggle, editProduct, setIsOpen }) => 
         description: "",
         price: "",
         category_id: "",
+        freeMinutes: "",
     })
 
     const handleProductInput = (e) => {
@@ -41,6 +42,7 @@ const ProductModal = ({ isOpen, handleModalToggle, editProduct, setIsOpen }) => 
                 description: editProduct.description || "",
                 price: editProduct.price || "",
                 category_id: editProduct.category && editProduct.category._id || "",
+                freeMinutes: editProduct.freeMinutes || "",
             })
             setSelectedImage({
                 imageUrl: editProduct.image || null,
@@ -52,6 +54,7 @@ const ProductModal = ({ isOpen, handleModalToggle, editProduct, setIsOpen }) => 
                 description: "",
                 price: "",
                 category_id: "",
+                freeMinutes: "",
             })
             setSelectedImage({
                 imageUrl: null,
@@ -102,6 +105,19 @@ const ProductModal = ({ isOpen, handleModalToggle, editProduct, setIsOpen }) => 
                     onChange={handleProductInput}
                     type="number"
                     placeholder="Məhsulun qiymətini daxil edin"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                />
+
+                {/* Free Minutes */}
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Pulsuz vaxt (dəqiqə)
+                </label>
+                <input
+                    name="freeMinutes"
+                    value={productInput.freeMinutes}
+                    onChange={handleProductInput}
+                    type="number"
+                    placeholder="Məhsulun pulsuz vaxtını daxil edin (dəqiqə)"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-orange-500 focus:outline-none"
                 />
 
@@ -182,6 +198,7 @@ const ProductModal = ({ isOpen, handleModalToggle, editProduct, setIsOpen }) => 
                                         description: productInput.description,
                                         price: productInput.price,
                                         category_id: productInput.category_id,
+                                        freeMinutes: productInput.freeMinutes ? Number(productInput.freeMinutes) : 0,
                                         imageFile: selectedImage.imageFile
                                     })
                                     setProductInput({
@@ -189,6 +206,7 @@ const ProductModal = ({ isOpen, handleModalToggle, editProduct, setIsOpen }) => 
                                         description: editProduct.description || "",
                                         price: editProduct.price || "",
                                         category_id: editProduct.category && editProduct.category._id || "",
+                                        freeMinutes: editProduct.freeMinutes || "",
                                     })
                                     setSelectedImage({
                                         imageUrl: editProduct.image || null,
@@ -206,6 +224,7 @@ const ProductModal = ({ isOpen, handleModalToggle, editProduct, setIsOpen }) => 
                                         description: productInput.description,
                                         price: productInput.price,
                                         category_id: productInput.category_id,
+                                        freeMinutes: productInput.freeMinutes ? Number(productInput.freeMinutes) : 0,
                                         imageFile: selectedImage.imageFile
                                     })
                                     setProductInput({
@@ -213,6 +232,7 @@ const ProductModal = ({ isOpen, handleModalToggle, editProduct, setIsOpen }) => 
                                         description: "",
                                         price: "",
                                         category_id: "",
+                                        freeMinutes: "",
                                     })
                                     setSelectedImage({
                                         imageUrl: null,

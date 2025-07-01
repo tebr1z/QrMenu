@@ -3,15 +3,18 @@ import { ContextAdmin } from '../../context/AdminContext';
 
 // Dummy menu data for UI
 const menuItems = [
-  { id: 1, name: 'Yemək 1', price: 5 },
-  { id: 2, name: 'Yemək 2', price: 7 },
-  { id: 3, name: 'Yemək 3', price: 10 },
+  { id: 1, name: 'Yemək 1', price: 5, freeMinutes: 0 },
+  { id: 2, name: 'Yemək 2', price: 7, freeMinutes: 0 },
+  { id: 3, name: 'Yemək 3', price: 10, freeMinutes: 0 },
+  { id: 99, name: '2 saatlıq pulsuz', price: 0, freeMinutes: 120 }, // special free 2 hours
+  // Misal üçün əlavə məhsul: { id: 4, name: 'VIP Paket', price: 30, freeMinutes: 180 }
 ];
 
 const AdminTableManagePage = () => {
   const { tables, finishedOrders, setFinishedOrders } = useContext(ContextAdmin);
   const [activeSessions, setActiveSessions] = useState({}); // { [tableId]: { startTime, hour, hourlyPrice, selectedMenu: [] } }
   const [modalOrder, setModalOrder] = useState(null);
+  const [paidAmount, setPaidAmount] = useState(0);
 
   // Start table session
   const handleStart = (table) => {
@@ -67,7 +70,19 @@ const AdminTableManagePage = () => {
     const endTime = Date.now();
     const durationMs = endTime - session.startTime;
     const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
-    const hourTotal = (durationMinutes * session.hourlyPrice) / 60;
+    // Toplam pulsuz vaxtı məhsullardan topla
+    const totalFreeMinutes = session.selectedMenu.reduce((sum, item) => sum + (item.freeMinutes || 0), 0);
+    let chargeableMinutes = durationMinutes - totalFreeMinutes;
+    let freeInfo = '';
+    if (totalFreeMinutes > 0) {
+      if (chargeableMinutes <= 0) {
+        chargeableMinutes = 0;
+        freeInfo = `Məhsullara görə ${totalFreeMinutes} dəqiqə pulsuz vaxt`; 
+      } else {
+        freeInfo = `Məhsullara görə ${totalFreeMinutes} dəqiqə pulsuz vaxt, əlavə ${chargeableMinutes} dəqiqə üçün hesablandı`;
+      }
+    }
+    let hourTotal = (chargeableMinutes > 0) ? (chargeableMinutes * session.hourlyPrice) / 60 : 0;
     const menuTotal = session.selectedMenu.reduce((sum, item) => sum + item.price, 0);
     const total = hourTotal + menuTotal;
     const order = {
@@ -81,6 +96,7 @@ const AdminTableManagePage = () => {
       selectedMenu: session.selectedMenu,
       menuTotal,
       total,
+      freeInfo,
     };
     setModalOrder(order);
     setActiveSessions(sessions => {
@@ -92,7 +108,10 @@ const AdminTableManagePage = () => {
   };
 
   // Modal close
-  const handleCloseModal = () => setModalOrder(null);
+  const handleCloseModal = () => {
+    setModalOrder(null);
+    setPaidAmount(0);
+  };
 
   // Format time
   const formatTime = (ms) => {
@@ -211,10 +230,29 @@ const AdminTableManagePage = () => {
               <span>Oturma müddəti: <b>{modalOrder.durationMinutes} dəqiqə</b></span>
               <span>Saatlıq qiymət: <b>{modalOrder.hourlyPrice}₼</b></span>
               <span>Vaxt cəmi: <b>{modalOrder.hourTotal.toFixed(2)}₼</b></span>
+              {modalOrder.freeInfo && (
+                <span className="text-xs text-blue-600 font-semibold">{modalOrder.freeInfo}</span>
+              )}
               <span>Məhsullar: {modalOrder.selectedMenu.map(item => `${item.name} (${item.price}₼)`).join(', ') || 'Yoxdur'}</span>
               <span>Məhsul cəmi: <b>{modalOrder.menuTotal}₼</b></span>
             </div>
             <div className="text-2xl font-bold text-center text-green-800 mt-4">Ümumi: {modalOrder.total.toFixed(2)}₼</div>
+            <div className="mt-6 flex flex-col gap-2 items-center">
+              <label className="font-semibold text-gray-700">Nağd ödəniş (₼):</label>
+              <input
+                type="number"
+                min={0}
+                value={paidAmount}
+                onChange={e => setPaidAmount(Number(e.target.value))}
+                className="border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-orange-400 w-40 text-center text-lg"
+                placeholder="Ödənilən məbləğ"
+              />
+              {paidAmount > 0 && (
+                <div className="text-lg font-bold text-blue-700 mt-2">
+                  Geri qaytarılacaq məbləğ: {(paidAmount - modalOrder.total).toFixed(2)}₼
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
