@@ -1,25 +1,38 @@
-import React, { useContext, useState } from 'react';
-import { ContextAdmin } from '../../context/AdminContext';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API || '/api',
+});
 
 const AdminAccountsPage = () => {
-  const { finishedOrders } = useContext(ContextAdmin);
+  const [orders, setOrders] = useState([]);
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
     return today.toISOString().slice(0, 10);
   });
+
+  useEffect(() => {
+    const fetchOrders = async () => {
+      try {
+        const url = selectedDate
+          ? `/order/GetOrders?date=${selectedDate}`
+          : '/order/GetOrders';
+        const res = await api.get(url);
+        setOrders(Array.isArray(res.data) ? res.data : []);
+      } catch (err) {
+        setOrders([]);
+      }
+    };
+    fetchOrders();
+  }, [selectedDate]);
 
   const formatTime = (ms) => {
     const date = new Date(ms);
     return date.toLocaleString();
   };
 
-  // Filter orders by selected date (yyyy-mm-dd)
-  const filteredOrders = finishedOrders.filter(order => {
-    const orderDate = new Date(order.endTime).toISOString().slice(0, 10);
-    return orderDate === selectedDate;
-  });
-
-  const totalIncome = filteredOrders.reduce((sum, order) => sum + order.total, 0);
+  const totalIncome = orders.reduce((sum, order) => sum + order.total, 0);
 
   return (
     <div className="max-w-5xl mx-auto p-4">
@@ -42,9 +55,9 @@ const AdminAccountsPage = () => {
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {filteredOrders.length === 0 && <div className="col-span-2 text-gray-500 text-center">Bu tarixdə bitmiş sifariş yoxdur.</div>}
-        {filteredOrders.map((order, idx) => (
-          <div key={idx} className="bg-white shadow-lg rounded-2xl p-6 border-l-8 border-green-500 flex flex-col gap-2">
+        {orders.length === 0 && <div className="col-span-2 text-gray-500 text-center">Bu tarixdə bitmiş sifariş yoxdur.</div>}
+        {orders.map((order, idx) => (
+          <div key={order._id || idx} className="bg-white shadow-lg rounded-2xl p-6 border-l-8 border-green-500 flex flex-col gap-2">
             <div className="flex items-center gap-3 mb-2">
               <div className="bg-green-100 p-2 rounded-full">
                 <i className="bi bi-receipt text-green-600 text-2xl"></i>

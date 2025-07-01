@@ -1,116 +1,127 @@
-import React, { useContext, useState } from 'react';
-import { ContextAdmin } from '../../context/AdminContext';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 
-// Dummy menu data for UI
-const menuItems = [
-  { id: 1, name: 'Yemək 1', price: 5, freeMinutes: 0 },
-  { id: 2, name: 'Yemək 2', price: 7, freeMinutes: 0 },
-  { id: 3, name: 'Yemək 3', price: 10, freeMinutes: 0 },
-  { id: 99, name: '2 saatlıq pulsuz', price: 0, freeMinutes: 120 }, // special free 2 hours
-  // Misal üçün əlavə məhsul: { id: 4, name: 'VIP Paket', price: 30, freeMinutes: 180 }
-];
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API || '/api',
+});
 
 const AdminTableManagePage = () => {
-  const { tables, finishedOrders, setFinishedOrders } = useContext(ContextAdmin);
-  const [activeSessions, setActiveSessions] = useState({}); // { [tableId]: { startTime, hour, hourlyPrice, selectedMenu: [] } }
+  const [tables, setTables] = useState([]);
+  const [sessions, setSessions] = useState([]); // Backend-based sessions
+  const [products, setProducts] = useState([]); // Real products from backend
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [modalOrder, setModalOrder] = useState(null);
   const [paidAmount, setPaidAmount] = useState(0);
 
-  // Start table session
-  const handleStart = (table) => {
-    setActiveSessions({
-      ...activeSessions,
-      [table.id]: {
+  // Fetch tables, active sessions, and products from backend
+  useEffect(() => {
+    const fetchAll = async () => {
+      setLoading(true);
+      try {
+        const [tablesRes, sessionsRes, productsRes] = await Promise.all([
+          api.get('/table/GetTables'),
+          api.get('/tablesession/Active'),
+          api.get('/Product/GetProduct'),
+        ]);
+        setTables(Array.isArray(tablesRes.data) ? tablesRes.data : []);
+        setSessions(Array.isArray(sessionsRes.data) ? sessionsRes.data : []);
+        setProducts(Array.isArray(productsRes.data) ? productsRes.data : []);
+      } catch (err) {
+        setError('Məlumatlar yüklənmədi');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAll();
+  }, []);
+
+  // Start table session (backend)
+  const handleStart = async (table) => {
+    setLoading(true);
+    setError('');
+    try {
+      await api.post('/tablesession/Start', {
+        tableId: table.id || table._id,
+        tableName: table.name,
         startTime: Date.now(),
-        hour: 1,
         hourlyPrice: table.hourlyPrice,
         selectedMenu: [],
-      },
-    });
-  };
-
-  // Add menu item
-  const handleAddMenuToSession = (tableId, menuId) => {
-    const menuItem = menuItems.find(item => item.id === Number(menuId));
-    if (!menuItem) return;
-    setActiveSessions(sessions => ({
-      ...sessions,
-      [tableId]: {
-        ...sessions[tableId],
-        selectedMenu: [...sessions[tableId].selectedMenu, menuItem],
-      },
-    }));
-  };
-
-  // Remove menu item
-  const handleRemoveMenuFromSession = (tableId, menuId) => {
-    setActiveSessions(sessions => ({
-      ...sessions,
-      [tableId]: {
-        ...sessions[tableId],
-        selectedMenu: sessions[tableId].selectedMenu.filter(item => item.id !== menuId),
-      },
-    }));
-  };
-
-  // Change hour or hourlyPrice
-  const handleSessionChange = (tableId, field, value) => {
-    setActiveSessions(sessions => ({
-      ...sessions,
-      [tableId]: {
-        ...sessions[tableId],
-        [field]: value,
-      },
-    }));
-  };
-
-  // Finish session
-  const handleFinish = (tableId) => {
-    const session = activeSessions[tableId];
-    const endTime = Date.now();
-    const durationMs = endTime - session.startTime;
-    const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
-    // Toplam pulsuz vaxtı məhsullardan topla
-    const totalFreeMinutes = session.selectedMenu.reduce((sum, item) => sum + (item.freeMinutes || 0), 0);
-    let chargeableMinutes = durationMinutes - totalFreeMinutes;
-    let freeInfo = '';
-    if (totalFreeMinutes > 0) {
-      if (chargeableMinutes <= 0) {
-        chargeableMinutes = 0;
-        freeInfo = `Məhsullara görə ${totalFreeMinutes} dəqiqə pulsuz vaxt`; 
-      } else {
-        freeInfo = `Məhsullara görə ${totalFreeMinutes} dəqiqə pulsuz vaxt, əlavə ${chargeableMinutes} dəqiqə üçün hesablandı`;
-      }
+      });
+      // Refresh sessions
+      const res = await api.get('/tablesession/Active');
+      setSessions(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setError('Masa başlatılarkən xəta baş verdi');
+    } finally {
+      setLoading(false);
     }
-    let hourTotal = (chargeableMinutes > 0) ? (chargeableMinutes * session.hourlyPrice) / 60 : 0;
-    const menuTotal = session.selectedMenu.reduce((sum, item) => sum + item.price, 0);
-    const total = hourTotal + menuTotal;
-    const order = {
-      tableId,
-      tableName: tables.find(t => t.id === tableId)?.name,
-      startTime: session.startTime,
-      endTime,
-      durationMinutes,
-      hourlyPrice: session.hourlyPrice,
-      hourTotal,
-      selectedMenu: session.selectedMenu,
-      menuTotal,
-      total,
-      freeInfo,
-    };
-    setModalOrder(order);
-    setActiveSessions(sessions => {
-      const copy = { ...sessions };
-      delete copy[tableId];
-      return copy;
-    });
-    setFinishedOrders(prev => [...prev, order]);
   };
 
-  // Modal close
-  const handleCloseModal = () => {
-    setModalOrder(null);
-    setPaidAmount(0);
+  // Add menu item to session (local only, can be extended to backend)
+  const handleAddMenuToSession = async (sessionId, menuId) => {
+    setSessions(sessions => sessions.map(s =>
+      s._id === sessionId
+        ? { ...s, selectedMenu: [...s.selectedMenu, products.find(item => (item._id === menuId || item.id === Number(menuId)))] }
+        : s
+    ));
+  };
+
+  // Remove menu item from session (local only)
+  const handleRemoveMenuFromSession = (sessionId, menuId) => {
+    setSessions(sessions => sessions.map(s =>
+      s._id === sessionId
+        ? { ...s, selectedMenu: s.selectedMenu.filter(item => (item._id || item.id) !== menuId) }
+        : s
+    ));
+  };
+
+  // Finish session: delete from backend, add to finished orders (only API, no local)
+  const handleFinish = async (session) => {
+    setLoading(true);
+    setError('');
+    try {
+      const endTime = Date.now();
+      const durationMs = endTime - session.startTime;
+      const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
+      const totalFreeMinutes = session.selectedMenu.reduce((sum, item) => sum + (item.freeMinutes || 0), 0);
+      let chargeableMinutes = durationMinutes - totalFreeMinutes;
+      let freeInfo = '';
+      if (totalFreeMinutes > 0) {
+        if (chargeableMinutes <= 0) {
+          chargeableMinutes = 0;
+          freeInfo = `Məhsullara görə ${totalFreeMinutes} dəqiqə pulsuz vaxt`;
+        } else {
+          freeInfo = `Məhsullara görə ${totalFreeMinutes} dəqiqə pulsuz vaxt, əlavə ${chargeableMinutes} dəqiqə üçün hesablandı`;
+        }
+      }
+      let hourTotal = (chargeableMinutes > 0) ? (chargeableMinutes * session.hourlyPrice) / 60 : 0;
+      const menuTotal = session.selectedMenu.reduce((sum, item) => sum + item.price, 0);
+      const total = hourTotal + menuTotal;
+      const order = {
+        tableId: session.tableId,
+        tableName: session.tableName,
+        startTime: session.startTime,
+        endTime,
+        durationMinutes,
+        hourlyPrice: session.hourlyPrice,
+        hourTotal,
+        selectedMenu: session.selectedMenu,
+        menuTotal,
+        total,
+        freeInfo,
+      };
+      setModalOrder(order);
+      await api.post('/order/AddOrder', order);
+      await api.delete(`/tablesession/${session._id}`);
+      // Refresh sessions
+      const res = await api.get('/tablesession/Active');
+      setSessions(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setError('Session bitirilərkən xəta baş verdi');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Format time
@@ -119,15 +130,20 @@ const AdminTableManagePage = () => {
     return date.toLocaleTimeString();
   };
 
+  // Defensive: always use array for tables
+  const safeTables = Array.isArray(tables) ? tables : [];
+
   return (
     <div className="max-w-5xl mx-auto p-4">
       <h1 className="text-3xl font-bold mb-8 text-gray-800 text-center tracking-tight">Masaların idarəsi</h1>
+      {loading && <div className="text-gray-500 mb-4">Yüklənir...</div>}
+      {error && <div className="text-red-500 mb-4">{error}</div>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-        {tables.length === 0 && <div className="col-span-2 text-gray-500">Heç bir masa əlavə edilməyib.</div>}
-        {tables.map(table => {
-          const session = activeSessions[table.id];
+        {safeTables.length === 0 && <div className="col-span-2 text-gray-500">Heç bir masa əlavə edilməyib.</div>}
+        {safeTables.map(table => {
+          const session = sessions.find(s => s.tableId === (table.id || table._id));
           return (
-            <div key={table.id} className={`relative flex flex-col bg-white shadow-lg rounded-2xl p-6 border-l-8 ${session ? 'border-orange-500' : 'border-gray-200'} transition group`}
+            <div key={table.id || table._id} className={`relative flex flex-col bg-white shadow-lg rounded-2xl p-6 border-l-8 ${session ? 'border-orange-500' : 'border-gray-200'} transition group`}
               style={{ minHeight: 220 }}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="bg-orange-100 p-2 rounded-full">
@@ -160,21 +176,21 @@ const AdminTableManagePage = () => {
                     <select
                       value=""
                       onChange={e => {
-                        handleAddMenuToSession(table.id, e.target.value);
+                        handleAddMenuToSession(session._id, e.target.value);
                         e.target.value = "";
                       }}
                       className="border px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
                     >
                       <option value="" disabled>Seçin</option>
-                      {menuItems.map(item => (
-                        <option key={item.id} value={item.id}>{item.name} ({item.price}₼)</option>
+                      {products.map(item => (
+                        <option key={item._id || item.id} value={item._id || item.id}>{item.name} ({item.price}₼)</option>
                       ))}
                     </select>
                   </div>
                   {session.selectedMenu.length > 0 && (
                     <div className="mb-2 flex flex-wrap gap-2 mt-2">
                       {Object.entries(session.selectedMenu.reduce((acc, item) => {
-                        acc[item.id] = acc[item.id] ? { ...item, count: acc[item.id].count + 1 } : { ...item, count: 1 };
+                        acc[item._id || item.id] = acc[item._id || item.id] ? { ...item, count: acc[item._id || item.id].count + 1 } : { ...item, count: 1 };
                         return acc;
                       }, {})).map(([id, item]) => (
                         <div key={id} className="bg-white border border-orange-200 px-3 py-1 rounded flex items-center gap-3 shadow-sm">
@@ -182,24 +198,7 @@ const AdminTableManagePage = () => {
                           <span className="inline-block bg-orange-100 text-orange-700 text-xs font-bold px-2 py-0.5 rounded-full">x{item.count}</span>
                           <button
                             title="Bir ədəd sil"
-                            onClick={() => {
-                              // Remove one instance of this item
-                              setActiveSessions(sessions => ({
-                                ...sessions,
-                                [table.id]: {
-                                  ...sessions[table.id],
-                                  selectedMenu: (() => {
-                                    const idx = sessions[table.id].selectedMenu.findIndex(i => i.id === Number(id));
-                                    if (idx !== -1) {
-                                      const arr = [...sessions[table.id].selectedMenu];
-                                      arr.splice(idx, 1);
-                                      return arr;
-                                    }
-                                    return sessions[table.id].selectedMenu;
-                                  })(),
-                                },
-                              }));
-                            }}
+                            onClick={() => handleRemoveMenuFromSession(session._id, item._id || item.id)}
                             className="ml-1 text-red-500 hover:text-red-700 p-1 rounded-full transition"
                           >
                             <i className="bi bi-trash text-base"></i>
@@ -209,7 +208,7 @@ const AdminTableManagePage = () => {
                     </div>
                   )}
                   <div className="flex justify-end mt-2">
-                    <button onClick={() => handleFinish(table.id)} className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition w-fit">Bitir</button>
+                    <button onClick={() => handleFinish(session)} className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition w-fit">Bitir</button>
                   </div>
                 </div>
               )}
@@ -221,7 +220,7 @@ const AdminTableManagePage = () => {
       {modalOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md relative border-t-8 border-green-500">
-            <button onClick={handleCloseModal} className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            <button onClick={() => { setModalOrder(null); setPaidAmount(0); }} className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
             <h2 className="text-2xl font-bold mb-4 text-center text-green-700 tracking-tight">Çek</h2>
             <div className="mb-2 text-center font-semibold text-lg">{modalOrder.tableName}</div>
             <div className="flex flex-col gap-1 mb-2 text-sm text-gray-700">

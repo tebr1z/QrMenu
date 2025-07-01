@@ -7,7 +7,7 @@ import clodinary from 'cloudinary';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 
-import allRouter from './AllRoutes.js';
+import AllRoutes from "./AllRoutes.js";
 
 // start connection
 import { connectMongoDb } from './connection/DbConnection.js';
@@ -29,7 +29,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(fileUpload({ useTempFiles: true }));
 
-app.use('/api', allRouter);
+app.use("/api", AllRoutes);
 
 app.listen(PORT, async () => {
     try {

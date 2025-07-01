@@ -65,8 +65,14 @@ const ProductModal = ({ isOpen, handleModalToggle, editProduct, setIsOpen }) => 
 
     return (
         isOpen &&
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50 backdrop-blur-sm">
-            <div className="bg-white w-full max-w-lg p-6 rounded-lg shadow-lg">
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50 backdrop-blur-sm"
+          onClick={handleModalToggle}
+        >
+            <div
+              className="bg-white w-full max-w-lg p-6 rounded-lg shadow-lg max-h-[80vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
                 <h2 className="text-lg font-bold mb-4">{editProduct ? 'Məhsulu Yenilə' : 'Yeni Məhsul Əlavə Et'} </h2>
 
                 {/* Product Name Input */}

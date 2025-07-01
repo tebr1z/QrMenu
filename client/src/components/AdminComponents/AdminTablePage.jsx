@@ -1,5 +1,9 @@
-import React, { useState, useContext } from 'react';
-import { ContextAdmin } from '../../context/AdminContext';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API || '/api',
+});
 
 // Dummy menu data for UI
 const menuItems = [
@@ -9,56 +13,97 @@ const menuItems = [
 ];
 
 const AdminTablePage = () => {
-  const { tables, setTables } = useContext(ContextAdmin);
+  const [tables, setTables] = useState([]);
   const [tableName, setTableName] = useState('');
   const [hourlyPrice, setHourlyPrice] = useState('');
   const [editId, setEditId] = useState(null);
   const [editName, setEditName] = useState('');
   const [editHourlyPrice, setEditHourlyPrice] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  // Add new table
-  const handleAddTable = () => {
+  useEffect(() => {
+    const fetchTables = async () => {
+      setLoading(true);
+      try {
+        const res = await api.get('/table/GetTables');
+        setTables(Array.isArray(res.data) ? res.data : []);
+      } catch (err) {
+        setError('Masalar yüklənmədi');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTables();
+  }, []);
+
+  const handleAddTable = async () => {
     if (!tableName.trim() || !hourlyPrice) return;
-    setTables([
-      ...tables,
-      {
-        id: Date.now(),
+    setLoading(true);
+    setError('');
+    try {
+      const res = await api.post('/table/AddTable', {
         name: tableName,
         hourlyPrice: Number(hourlyPrice),
-      },
-    ]);
-    setTableName('');
-    setHourlyPrice('');
+      });
+      setTables(prev => [...prev, res.data.newTable]);
+      setTableName('');
+      setHourlyPrice('');
+    } catch (err) {
+      setError('Masa əlavə edilərkən xəta baş verdi');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Delete table
-  const handleDelete = (id) => {
-    setTables(tables.filter(table => table.id !== id));
+  const handleDelete = async (id) => {
+    setLoading(true);
+    setError('');
+    try {
+      await api.delete(`/table/DeleteTable/${id}`);
+      setTables(tables.filter(table => (table.id || table._id) !== id));
+    } catch (err) {
+      setError('Masa silinərkən xəta baş verdi');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Start editing
   const handleEdit = (table) => {
-    setEditId(table.id);
+    setEditId(table.id || table._id);
     setEditName(table.name);
     setEditHourlyPrice(table.hourlyPrice);
   };
 
-  // Save edit
-  const handleSaveEdit = () => {
-    setTables(tables.map(table =>
-      table.id === editId ? { ...table, name: editName, hourlyPrice: Number(editHourlyPrice) } : table
-    ));
-    setEditId(null);
-    setEditName('');
-    setEditHourlyPrice('');
+  const handleSaveEdit = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await api.put(`/table/UpdateTable/${editId}`, {
+        name: editName,
+        hourlyPrice: Number(editHourlyPrice),
+      });
+      setTables(tables.map(table =>
+        (table.id || table._id) === editId ? res.data.table : table
+      ));
+      setEditId(null);
+      setEditName('');
+      setEditHourlyPrice('');
+    } catch (err) {
+      setError('Masa yenilənərkən xəta baş verdi');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Cancel edit
   const handleCancelEdit = () => {
     setEditId(null);
     setEditName('');
     setEditHourlyPrice('');
   };
+
+  // Defensive: always use array for tables
+  const safeTables = Array.isArray(tables) ? tables : [];
 
   return (
     <div className="max-w-3xl mx-auto p-4">
@@ -81,16 +126,17 @@ const AdminTablePage = () => {
         <button
           onClick={handleAddTable}
           className="px-6 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 font-semibold transition"
+          disabled={loading}
         >
           Masa əlavə et
         </button>
       </div>
-      {/* Table List */}
+      {error && <div className="text-red-500 mb-4">{error}</div>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {tables.map(table => (
-          <div key={table.id} className="flex items-center bg-white shadow-md rounded-lg p-4 hover:shadow-lg transition border-l-4 border-orange-500">
+        {safeTables.map(table => (
+          <div key={table.id || table._id} className="flex items-center bg-white shadow-md rounded-lg p-4 hover:shadow-lg transition border-l-4 border-orange-500">
             <div className="flex-1">
-              {editId === table.id ? (
+              {editId === (table.id || table._id) ? (
                 <>
                   <input
                     type="text"
@@ -105,7 +151,7 @@ const AdminTablePage = () => {
                     className="border px-2 py-1 rounded w-full mb-2"
                   />
                   <div className="flex gap-2">
-                    <button onClick={handleSaveEdit} className="px-4 py-1 bg-green-500 text-white rounded hover:bg-green-600">Yadda saxla</button>
+                    <button onClick={handleSaveEdit} className="px-4 py-1 bg-green-500 text-white rounded hover:bg-green-600" disabled={loading}>Yadda saxla</button>
                     <button onClick={handleCancelEdit} className="px-4 py-1 bg-gray-400 text-white rounded hover:bg-gray-500">Ləğv et</button>
                   </div>
                 </>
@@ -117,7 +163,7 @@ const AdminTablePage = () => {
                   <div className="text-sm text-gray-600 mb-2">Saatlıq qiymət: <b>{table.hourlyPrice}₼</b></div>
                   <div className="flex gap-2">
                     <button onClick={() => handleEdit(table)} className="px-4 py-1 bg-orange-500 text-white rounded hover:bg-orange-600">Düzəliş</button>
-                    <button onClick={() => handleDelete(table.id)} className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600">Sil</button>
+                    <button onClick={() => handleDelete(table.id || table._id)} className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600" disabled={loading}>Sil</button>
                   </div>
                 </>
               )}
