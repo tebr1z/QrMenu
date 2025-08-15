@@ -6,7 +6,7 @@ const router = express.Router();
 // Bütün aktiv session-ları al
 router.get('/Active', async (req, res) => {
     try {
-        const sessions = await TableSession.find({});
+        const sessions = await TableSession.find({ isActive: true });
         res.status(200).json(sessions);
     } catch (error) {
         res.status(500).json({ error: 'Aktiv masalar alınarkən xəta baş verdi' });
@@ -21,6 +21,38 @@ router.post('/Start', async (req, res) => {
         res.status(201).json({ message: 'Masa başlatıldı', session });
     } catch (error) {
         res.status(500).json({ error: 'Masa başlatılarkən xəta baş verdi' });
+    }
+});
+
+// Session-a menyu əlavə et
+router.put('/:id/menu', async (req, res) => {
+    try {
+        const { selectedMenu } = req.body;
+        const session = await TableSession.findByIdAndUpdate(
+            req.params.id,
+            { selectedMenu },
+            { new: true }
+        );
+        if (!session) return res.status(404).json({ error: 'Session tapılmadı' });
+        res.status(200).json({ message: 'Menyu yeniləndi', session });
+    } catch (error) {
+        res.status(500).json({ error: 'Menyu yenilənərkən xəta baş verdi' });
+    }
+});
+
+// Timer-i yenilə
+router.put('/:id/timer', async (req, res) => {
+    try {
+        const { timer } = req.body;
+        const session = await TableSession.findByIdAndUpdate(
+            req.params.id,
+            { timer },
+            { new: true }
+        );
+        if (!session) return res.status(404).json({ error: 'Session tapılmadı' });
+        res.status(200).json({ message: 'Timer yeniləndi', session });
+    } catch (error) {
+        res.status(500).json({ error: 'Timer yenilənərkən xəta baş verdi' });
     }
 });
 

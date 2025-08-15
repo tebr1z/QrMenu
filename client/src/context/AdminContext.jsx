@@ -225,6 +225,7 @@ const AdminContext = ({ children }) => {
         const saved = localStorage.getItem('finishedOrders');
         return saved ? JSON.parse(saved) : [];
     });
+    
     useEffect(() => {
         localStorage.setItem('adminTables', JSON.stringify(tables));
     }, [tables]);
@@ -263,7 +264,7 @@ const AdminContext = ({ children }) => {
             tables,
             setTables,
             finishedOrders,
-            setFinishedOrders
+            setFinishedOrders,
         }}>
             {
                 children

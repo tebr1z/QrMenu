@@ -64,11 +64,15 @@ router.post("/Login", async (req, res) => {
         }
 
         const token = jwt.sign(payload, process.env.TOKEN_SECRET_CODE, {
-            expiresIn: "3d",
+            expiresIn: "24h",
         });
         res.cookie("jwtToken", token, {
-            // httpOnly: true,
-            maxAge: 1000 * 60 * 60 * 24 * 7,
+            httpOnly: false, // Allow JavaScript access
+            secure: false, // Set to true in production with HTTPS
+            sameSite: 'none', // Allow cross-site cookies
+            maxAge: 1000 * 60 * 60 * 24, // 24 saat
+            path: '/',
+            domain: undefined // Let browser set the domain
         });
 
         // res.json({message:"User Signin Successfully"})
@@ -88,9 +92,11 @@ router.post("/Logout", async (req, res) => {
             return;
         }
         res.clearCookie("jwtToken", {
-            httpOnly: true,
-            secure: true,
-            sameSite: "strict",
+            httpOnly: false,
+            secure: false,
+            sameSite: 'none',
+            path: '/',
+            domain: undefined
         });
 
         // res.clearCookie("jwtToken", {

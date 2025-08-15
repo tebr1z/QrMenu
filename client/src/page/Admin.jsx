@@ -11,15 +11,26 @@ const Admin = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
-        if (hasJwtToken === false) {
-            navigate("/Sign");
-        } else if (hasJwtToken !== null) {
-            setLoading(false);
-        }
-    }, [hasJwtToken]);
+        // Add a small delay to allow context to initialize
+        const timer = setTimeout(() => {
+            if (hasJwtToken === false) {
+                navigate("/Sign");
+            } else if (hasJwtToken === true) {
+                setLoading(false);
+            }
+        }, 100);
 
-    if (loading) {
+        return () => clearTimeout(timer);
+    }, [hasJwtToken, navigate]);
+
+    // Show loading while checking session
+    if (loading || hasJwtToken === null) {
         return <Loading />;
+    }
+
+    // Don't render anything if not authenticated
+    if (hasJwtToken === false) {
+        return null;
     }
 
     return (

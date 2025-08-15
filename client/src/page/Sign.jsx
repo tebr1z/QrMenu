@@ -6,7 +6,7 @@ import { ContextUser } from '../context/CheckUserContext'
 import { useNavigate } from 'react-router-dom'
 const Sign = () => {
     const navigate = useNavigate()
-    const { apiClient, sethasJwtToken } = useContext(ContextUser)
+    const { apiClient, setSession } = useContext(ContextUser)
 
     const [signInput, setsignInput] = useState({
         email: '',
@@ -24,8 +24,15 @@ const Sign = () => {
             const response = await apiClient.post(`/Auth/Login`, signInput)
             toast.success(response.data.message)
             localStorage.setItem('userName', response.data.payload.Name)
-            sethasJwtToken(true)
-            navigate("/Admin")
+            
+            // Wait a bit for cookie to be set, then check session
+            setTimeout(() => {
+                // Create a dummy token for localStorage session
+                const dummyToken = 'session_' + Date.now();
+                setSession(dummyToken);
+                navigate("/Admin")
+            }, 100)
+            
         } catch (error) {
             console.log(error)
             toast.error(error.response.data.error)

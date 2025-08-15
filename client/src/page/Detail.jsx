@@ -3,8 +3,8 @@ import FoodDetail from '../components/FoodDetail'
 import { useParams } from 'react-router-dom';
 import { ContextAdmin } from '../context/AdminContext';
 import Loading from '../components/Loading';
-const Detail = () => {
 
+const Detail = () => {
     const { getProductByCategoryFunc, getProductByCategory, getProductByCategoryLoading, setGetProductByCategoryLoading, changeHeaderImgFunc, category } = useContext(ContextAdmin)
     const { name } = useParams()
 
@@ -15,7 +15,6 @@ const Detail = () => {
             setGetProductByCategoryLoading(true)
             changeHeaderImgFunc('', '')
         }
-
     }, [name])
 
     useEffect(() => {
@@ -29,7 +28,6 @@ const Detail = () => {
             changeHeaderImgFunc('', '');
         };
     }, [category, name]);
-
 
     const [filterProduct, setfilterProduct] = useState([])
     const [filterInput, setfilterInput] = useState('')
@@ -54,7 +52,6 @@ const Detail = () => {
         setfilterProduct(filterResponse)
         console.log(filterResponse)
     }
-
 
     if (getProductByCategoryLoading) {
         return <Loading />

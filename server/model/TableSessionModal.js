@@ -6,6 +6,8 @@ const tableSessionSchema = mongoose.Schema({
     startTime: { type: Number, required: true },
     hourlyPrice: { type: Number, required: true },
     selectedMenu: { type: Array, required: true },
+    timer: { type: Number, default: 0 }, // Timer in seconds
+    isActive: { type: Boolean, default: true }, // Whether session is active
     createdAt: { type: Date, default: Date.now },
 });
 
