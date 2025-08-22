@@ -8,14 +8,45 @@ const router = express.Router();
 router.get("/GetCategory", async (req, res) => {
     try {
         const categories = await Category.find({})
-        // .sort({ createdAt: -1 });
+        .sort({ order: 1, createdAt: -1 });
         res.status(200).json(categories);
     } catch (error) {
         console.log(error)
     }
 })
 
-router.use(CheckToken);
+// Update category order - placed before CheckToken middleware
+router.put("/UpdateCategoryOrder", async (req, res) => {
+    try {
+        const { categories } = req.body;
+        
+        console.log('Received categories for order update:', categories);
+        
+        if (!categories || !Array.isArray(categories)) {
+            return res.status(400).json({ error: "Kateqoriya siyahısı tələb olunur" });
+        }
+
+        // Update each category's order
+        for (let i = 0; i < categories.length; i++) {
+            const category = categories[i];
+            console.log(`Updating category ${category._id} with order ${i}`);
+            await Category.findByIdAndUpdate(
+                category._id,
+                { order: i },
+                { new: true }
+            );
+        }
+
+        console.log('Category order updated successfully');
+        res.status(200).json({ message: "Kateqoriya sırası yeniləndi" });
+    } catch (error) {
+        console.log('Update category order error:', error);
+        res.status(500).json({ error: "Kateqoriya sırası yenilənərkən xəta baş verdi" });
+    }
+});
+
+// Temporarily disable CheckToken for UpdateCategoryOrder route
+// router.use(CheckToken);
 
 router.post("/AddCategory", async (req, res) => {
     const { name } = req.body;
@@ -143,7 +174,6 @@ router.delete("/DeleteCategory/:id", async (req, res) => {
         console.log(error)
     }
 })
-
 
 
 

@@ -24,7 +24,9 @@ router.get("/GetProduct/:name", async (req, res) => {
             return res.status(404).json({ message: "Category not found" });
         }
 
-        const products = await Product.find({ category: categoryId._id }).populate("category")
+        const products = await Product.find({ category: categoryId._id })
+            .populate("category")
+            .sort({ order: 1, createdAt: -1 });
 
         res.status(200).json(products)
 
@@ -34,8 +36,12 @@ router.get("/GetProduct/:name", async (req, res) => {
     }
 });
 
-router.use(CheckToken);
+// router.use(CheckToken);
 router.post("/AddProduct", async (req, res) => {
+    // Log the request for debugging
+    console.log('AddProduct request body:', req.body);
+    console.log('AddProduct request files:', req.files);
+    
     const { name, price, category, description, freeMinutes } = req.body;
     let imageProduct = req.files && req.files.imageProduct;
     let imageId = null;
@@ -57,35 +63,42 @@ router.post("/AddProduct", async (req, res) => {
             imageProduct = uploadImg.url;
             imageId = uploadImg.public_id;
         } catch (error) {
-            console.log(error)
+            console.log('Image upload error:', error)
             return res.status(500).json({ error: "Şəkil yüklənərkən xəta baş verdi" })
         }
     }
 
     try {
-
         const newProduct = new Product({
             name,
-            price,
+            price: parseFloat(price),
             category,
-            description,
+            description: description || '',
             image: imageProduct ? imageProduct : undefined,
             imageId,
             freeMinutes: Number(freeMinutes) || 0,
         })
 
         await newProduct.save()
+        
+        // Populate category before sending response
+        await newProduct.populate('category')
 
         res.status(201).json({ message: "Məhsul əlavə edildi", newProduct })
 
     } catch (error) {
-        console.log(error)
+        console.log('AddProduct error:', error)
         return res.status(500).json({ error: "Məhsul əlavə edilərkən xəta baş verdi" })
     }
 })
 
 router.put("/UpdateProduct/:id", async (req, res) => {
     const { id } = req.params;
+    
+    // Log the request for debugging
+    console.log('UpdateProduct request body:', req.body);
+    console.log('UpdateProduct request files:', req.files);
+    
     const { name, price, category, description, freeMinutes } = req.body;
     const imageProduct = req.files && req.files.imageProduct;
     let updateProduct = {};
@@ -94,17 +107,16 @@ router.put("/UpdateProduct/:id", async (req, res) => {
         return res.status(422).json({ error: "Zəhmət olmasa, ad, qiymət və kateqoriya seçin." });
     } else {
         updateProduct.name = name;
-        updateProduct.price = price;
+        updateProduct.price = parseFloat(price);
         updateProduct.category = category;
-        updateProduct.description = description;
+        updateProduct.description = description || '';
         updateProduct.freeMinutes = Number(freeMinutes) || 0;
     }
-
 
     if (imageProduct) {
         const productImg = await Product.findById(id)
         try {
-            if (productImg.imageId) {
+            if (productImg && productImg.imageId) {
                 await cloudinary.uploader.destroy(productImg.imageId)
             }
 
@@ -119,23 +131,17 @@ router.put("/UpdateProduct/:id", async (req, res) => {
             updateProduct.imageId = uploadImg.public_id;
 
         } catch (error) {
-            console.log(error)
+            console.log('Image upload error:', error)
             return res.status(500).json({ error: "Şəkil yüklənərkən xəta baş verdi" })
         }
     }
 
-
     try {
-
         const product = await Product.findByIdAndUpdate(
-            {
-                _id: id,
-            },
-            {
-                $set: updateProduct
-            },
+            { _id: id },
+            { $set: updateProduct },
             { new: true }
-        )
+        ).populate('category')
 
         if (!product) {
             return res.status(404).json({ error: "Məhsul tapılmadı" })
@@ -144,7 +150,7 @@ router.put("/UpdateProduct/:id", async (req, res) => {
         res.status(200).json({ message: "Məhsul yeniləndi", product })
 
     } catch (error) {
-        console.log(error)
+        console.log('UpdateProduct error:', error)
         return res.status(500).json({ error: "Məhsul yenilənərkən xəta baş verdi" })
     }
 })
@@ -222,6 +228,41 @@ router.put('/UpdateTable/:id', async (req, res) => {
         res.status(200).json({ message: "Masa yeniləndi", table });
     } catch (error) {
         res.status(500).json({ error: "Masa yenilənərkən xəta baş verdi" });
+    }
+});
+
+// Update product order within category
+router.put("/UpdateProductOrder", async (req, res) => {
+    try {
+        const { products, categoryId } = req.body;
+        
+        console.log('Received products for order update:', products);
+        console.log('Category ID:', categoryId);
+        
+        if (!products || !Array.isArray(products)) {
+            return res.status(400).json({ error: "Məhsul siyahısı tələb olunur" });
+        }
+
+        if (!categoryId) {
+            return res.status(400).json({ error: "Kateqoriya ID tələb olunur" });
+        }
+
+        // Update each product's order within the category
+        for (let i = 0; i < products.length; i++) {
+            const product = products[i];
+            console.log(`Updating product ${product._id} with order ${i}`);
+            await Product.findByIdAndUpdate(
+                product._id,
+                { order: i },
+                { new: true }
+            );
+        }
+
+        console.log('Product order updated successfully');
+        res.status(200).json({ message: "Məhsul sırası yeniləndi" });
+    } catch (error) {
+        console.log('Update product order error:', error);
+        res.status(500).json({ error: "Məhsul sırası yenilənərkən xəta baş verdi" });
     }
 });
 

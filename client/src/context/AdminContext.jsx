@@ -1,24 +1,59 @@
-import React, { createContext, useState, useContext, useEffect } from 'react'
+import React, { createContext, useState, useEffect, useCallback, useMemo } from 'react'
 export const ContextAdmin = createContext()
-import { ContextUser } from './CheckUserContext'
 import { toast } from 'react-toastify'
+import axios from "axios";
+
 const AdminContext = ({ children }) => {
-    const { apiClient } = useContext(ContextUser)
+    // Create separate apiClient for AdminContext
+    const apiUrl = import.meta.env.VITE_API;
+    const apiClient = useMemo(() => {
+        const client = axios.create({
+            baseURL: apiUrl,
+            withCredentials: true,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            timeout: 10000,
+        });
+
+        // Add request interceptor for AdminContext
+        client.interceptors.request.use(
+            (config) => {
+                const getCookie = (name) => {
+                    const value = `; ${document.cookie}`;
+                    const parts = value.split(`; ${name}=`);
+                    if (parts.length === 2) return parts.pop().split(';').shift();
+                    return null;
+                };
+                
+                const token = getCookie('jwtToken');
+                if (token) {
+                    config.headers.Authorization = `Bearer ${token}`;
+                }
+                return config;
+            },
+            (error) => Promise.reject(error)
+        );
+
+        return client;
+    }, [apiUrl]);
+
     // start Category
     const [categoryLoading, setCategoryLoading] = useState(false)
 
-    const [category, setcategory] = useState([])
-    const getCategory = async () => {
+    const [categories, setCategories] = useState([])
+    const getCategoriesFunc = useCallback(async () => {
         try {
             const response = await apiClient.get('/Category/GetCategory')
-            setcategory(response.data)
+            setCategories(response.data)
         } catch (error) {
-            console.log(error)
+            console.log('Get categories error:', error)
+            toast.error('Kateqoriyalar yüklənərkən xəta baş verdi')
         }
-    }
+    }, [apiClient])
 
     const [newCategory, setNewCategory] = useState()
-    const newCategoryFunc = async (category) => {
+    const addCategoryFunc = useCallback(async (category) => {
         setCategoryLoading(true)
         try {
             const data = new FormData()
@@ -30,14 +65,14 @@ const AdminContext = ({ children }) => {
             toast.success(response.data.message)
             setCategoryLoading(false)
         } catch (error) {
-            console.log(error)
-            toast.error(error.response.data.error)
+            console.log('Add category error:', error)
+            toast.error(error.response?.data?.error || 'Kateqoriya əlavə edilərkən xəta baş verdi')
             setCategoryLoading(false)
         }
-    }
+    }, [apiClient])
 
     const [updateCategory, setUpdateCategory] = useState()
-    const updateCategoryFunc = async (id, category) => {
+    const updateCategoryFunc = useCallback(async (id, category) => {
         setCategoryLoading(true)
         try {
             const data = new FormData()
@@ -48,14 +83,14 @@ const AdminContext = ({ children }) => {
             toast.success(response.data.message)
             setCategoryLoading(false)
         } catch (error) {
-            console.log(error)
-            toast.error(error.response.data.error)
+            console.log('Update category error:', error)
+            toast.error(error.response?.data?.error || 'Kateqoriya yenilənərkən xəta baş verdi')
             setCategoryLoading(false)
         }
-    }
+    }, [apiClient])
 
     const [deleteCategory, setDeleteCategory] = useState()
-    const deleteCategoryFunc = async (id) => {
+    const deleteCategoryFunc = useCallback(async (id) => {
         setCategoryLoading(true)
         try {
             const response = await apiClient.delete(`/Category/DeleteCategory/${id}`)
@@ -63,71 +98,100 @@ const AdminContext = ({ children }) => {
             toast.success(response.data.message)
             setCategoryLoading(false)
         } catch (error) {
-            console.log(error)
-            toast.error(error.response.data.error)
+            console.log('Delete category error:', error)
+            toast.error(error.response?.data?.error || 'Kateqoriya silinərkən xəta baş verdi')
             setCategoryLoading(false)
         }
-    }
+    }, [apiClient])
 
-    // start Prodcut
+    const updateCategoryOrderFunc = useCallback(async (categories) => {
+        setCategoryLoading(true)
+        try {
+            console.log('Sending categories for order update:', categories);
+            const response = await apiClient.put('/Category/UpdateCategoryOrder', { categories })
+            console.log('Update category order response:', response.data);
+            toast.success(response.data.message)
+            // Refresh categories from backend to get updated order
+            await getCategoriesFunc()
+            setCategoryLoading(false)
+        } catch (error) {
+            console.log('Update category order error:', error)
+            console.log('Error response:', error.response?.data)
+            console.log('Error status:', error.response?.status)
+            toast.error(error.response?.data?.error || 'Kateqoriya sırası yenilənərkən xəta baş verdi')
+            setCategoryLoading(false)
+        }
+    }, [apiClient, getCategoriesFunc])
+
+    // start Product
     const [productLoading, setProductLoading] = useState(false)
 
-    const [product, setProduct] = useState([])
-    const getProduct = async () => {
+    const [products, setProducts] = useState([])
+    const getProductsFunc = useCallback(async () => {
         try {
             const response = await apiClient.get('/Product/GetProduct')
-            setProduct(response.data)
+            // Sort products by order and creation date
+            const sortedProducts = response.data.sort((a, b) => {
+                const orderA = a.order || 0;
+                const orderB = b.order || 0;
+                
+                if (orderA !== orderB) {
+                    return orderA - orderB;
+                }
+                
+                return new Date(b.createdAt) - new Date(a.createdAt);
+            });
+            setProducts(sortedProducts)
         } catch (error) {
-            console.log(error)
+            console.log('Get products error:', error)
+            toast.error('Məhsullar yüklənərkən xəta baş verdi')
         }
-    }
+    }, [apiClient])
 
     const [newProduct, setNewProduct] = useState()
-    const newProductFunc = async (product) => {
+    const addProductFunc = useCallback(async (product) => {
         setProductLoading(true)
         try {
-            const data = new FormData()
-            data.append('name', product.name)
-            data.append('price', product.price)
-            data.append('category', product.category_id)
-            data.append('description', product.description)
-            data.append('imageProduct', product.imageFile)
-            data.append('freeMinutes', product.freeMinutes ? product.freeMinutes : '0')
-            const response = await apiClient.post('/Product/AddProduct', data)
+            const response = await apiClient.post('/Product/AddProduct', product)
             setNewProduct(response.data)
             toast.success(response.data.message)
             setProductLoading(false)
         } catch (error) {
-            console.log(error)
-            toast.error(error.response.data.error)
+            console.log('Add Product Error:', error)
+            console.log('Error response:', error.response)
+            
+            if (error.response?.data?.error) {
+                toast.error(error.response.data.error)
+            } else {
+                toast.error('Məhsul əlavə edilərkən xəta baş verdi')
+            }
             setProductLoading(false)
         }
-    }
+    }, [apiClient])
 
     const [updateProduct, setUpdateProduct] = useState()
-    const updateProductFunc = async (id, product) => {
+    const updateProductFunc = useCallback(async (id, product) => {
         setProductLoading(true)
         try {
-            const data = new FormData()
-            data.append('name', product.name)
-            data.append('price', product.price)
-            data.append('category', product.category_id)
-            data.append('description', product.description)
-            data.append('imageProduct', product.imageFile)
-            data.append('freeMinutes', product.freeMinutes ? product.freeMinutes : '0')
-            const response = await apiClient.put(`/Product/UpdateProduct/${id}`, data)
+            const response = await apiClient.put(`/Product/UpdateProduct/${id}`, product)
             setUpdateProduct(response.data.product)
             toast.success(response.data.message)
             setProductLoading(false)
         } catch (error) {
-            console.log(error)
-            toast.error(error.response.data.error)
+            console.log('Update Product Error:', error)
+            console.log('Error response:', error.response)
+            
+            if (error.response?.data?.error) {
+                toast.error(error.response.data.error)
+            } else {
+                toast.error('Məhsul yenilənərkən xəta baş verdi')
+            }
             setProductLoading(false)
         }
-    }
+    }, [apiClient])
 
     const [deleteProduct, setDeleteProduct] = useState()
-    const deleteProductFunc = async (id) => {
+    const deleteProductFunc = useCallback(async (id) => {
         setProductLoading(true)
         try {
             const response = await apiClient.delete(`/Product/DeleteProduct/${id}`)
@@ -135,15 +199,15 @@ const AdminContext = ({ children }) => {
             toast.success(response.data.message)
             setProductLoading(false)
         } catch (error) {
-            console.log(error)
-            toast.error(error.response.data.error)
+            console.log('Delete product error:', error)
+            toast.error(error.response?.data?.error || 'Məhsul silinərkən xəta baş verdi')
             setProductLoading(false)
         }
-    }
+    }, [apiClient])
 
     const [getProductByCategoryLoading, setGetProductByCategoryLoading] = useState(true)
     const [getProductByCategory, setGetProductByCategory] = useState([])
-    const getProductByCategoryFunc = async (name) => {
+    const getProductByCategoryFunc = useCallback(async (name) => {
         try {
             const response = await apiClient.get(`/Product/GetProduct/${name}`)
             setGetProductByCategory(response.data)
@@ -153,21 +217,69 @@ const AdminContext = ({ children }) => {
             setGetProductByCategory([])
             setGetProductByCategoryLoading(false)
         }
-    }
+    }, [apiClient])
+
+    const setGetProductByCategoryLoadingFunc = useCallback((loading) => {
+        setGetProductByCategoryLoading(loading)
+    }, [])
+
+    const updateProductOrderFunc = useCallback(async (products, categoryId) => {
+        setProductLoading(true)
+        try {
+            console.log('Sending products for order update:', products);
+            console.log('Category ID:', categoryId);
+            const response = await apiClient.put('/Product/UpdateProductOrder', { products, categoryId })
+            console.log('Update product order response:', response.data);
+            toast.success(response.data.message)
+            
+            // Update local state with new order
+            setProducts(prevProducts => {
+                const updatedProducts = [...prevProducts];
+                
+                // Update the order of products in the category
+                products.forEach((product, index) => {
+                    const productIndex = updatedProducts.findIndex(p => p._id === product._id);
+                    if (productIndex !== -1) {
+                        updatedProducts[productIndex] = { ...updatedProducts[productIndex], order: index };
+                    }
+                });
+                
+                // Sort by order and creation date
+                return updatedProducts.sort((a, b) => {
+                    const orderA = a.order || 0;
+                    const orderB = b.order || 0;
+                    
+                    if (orderA !== orderB) {
+                        return orderA - orderB;
+                    }
+                    
+                    return new Date(b.createdAt) - new Date(a.createdAt);
+                });
+            });
+            
+            setProductLoading(false)
+        } catch (error) {
+            console.log('Update product order error:', error)
+            console.log('Error response:', error.response?.data)
+            console.log('Error status:', error.response?.status)
+            toast.error(error.response?.data?.error || 'Məhsul sırası yenilənərkən xəta baş verdi')
+            setProductLoading(false)
+        }
+    }, [apiClient])
 
 
     // header Img change Start
     const [headerImg, setheaderImg] = useState('')
     const [headerName, setheaderName] = useState('')
-    const changeHeaderImgFunc = (imgUrl, name) => {
+    const changeHeaderImgFunc = useCallback((imgUrl, name) => {
         setheaderImg(imgUrl)
         setheaderName(name)
-    }
+    }, [])
 
     // contact start
     const [contactLoading, setcontactLoading] = useState(false)
     const [contactData, setcontactData] = useState()
-    const getContactData = async () => {
+    const getContactData = useCallback(async () => {
         try {
             const response = await apiClient.get('/Contact')
             setcontactData(response.data[0])
@@ -175,10 +287,10 @@ const AdminContext = ({ children }) => {
             console.log(error)
             setcontactData(null)
         }
-    }
+    }, [apiClient])
 
     const [updateContact, setupdateContact] = useState()
-    const updateContactFunc = async (contact, id) => {
+    const updateContactFunc = useCallback(async (contact, id) => {
 
         setcontactLoading(true)
         try {
@@ -191,30 +303,74 @@ const AdminContext = ({ children }) => {
             toast.error(error.response.data.error)
             setcontactLoading(false)
         }
-    }
+    }, [apiClient])
 
     // ---------------------------------------
 
+    // Initial data loading - run only once
+    useEffect(() => {
+        const loadInitialData = async () => {
+            try {
+                await Promise.all([
+                    getCategoriesFunc(),
+                    getProductsFunc(),
+                    getContactData()
+                ]);
+            } catch (error) {
+                console.log('Initial data loading error:', error);
+            }
+        };
+        
+        loadInitialData();
+    }, []); // Empty dependency array - run only once
+
     // category
     useEffect(() => {
-        getCategory()
+        if (newCategory || deleteCategory || updateCategory) {
+            const loadCategories = async () => {
+                try {
+                    await getCategoriesFunc();
+                } catch (error) {
+                    console.log('Error loading categories:', error);
+                }
+            };
+            loadCategories();
+        }
     }, [newCategory, deleteCategory, updateCategory])
 
     // product
     useEffect(() => {
-        getProduct()
+        if (newProduct || deleteProduct || updateProduct) {
+            const loadProducts = async () => {
+                try {
+                    await getProductsFunc();
+                } catch (error) {
+                    console.log('Error loading products:', error);
+                }
+            };
+            loadProducts();
+        }
     }, [newProduct, deleteProduct, updateProduct])
 
     // contact
     useEffect(() => {
-        getContactData()
+        if (updateContact) {
+            const loadContact = async () => {
+                try {
+                    await getContactData();
+                } catch (error) {
+                    console.log('Error loading contact:', error);
+                }
+            };
+            loadContact();
+        }
     }, [updateContact])
 
     // show contact or work time
     const [showContactOrWork, setshowContactOrWork] = useState(false)
-    const showContactOrWorkFunc = () => {
+    const showContactOrWorkFunc = useCallback(() => {
         setshowContactOrWork(!showContactOrWork)
-    }
+    }, [showContactOrWork])
 
     // Table management (local only)
     const [tables, setTables] = useState(() => {
@@ -237,20 +393,24 @@ const AdminContext = ({ children }) => {
         <ContextAdmin.Provider value={{
             // category start
             categoryLoading,
-            category,
-            newCategoryFunc,
+            categories,
+            getCategoriesFunc,
+            addCategoryFunc,
             deleteCategoryFunc,
             updateCategoryFunc,
+            updateCategoryOrderFunc,
             // product start
             productLoading,
-            product,
-            newProductFunc,
+            products,
+            getProductsFunc,
+            addProductFunc,
             updateProductFunc,
             deleteProductFunc,
+            updateProductOrderFunc,
             getProductByCategoryFunc,
             getProductByCategory,
             getProductByCategoryLoading,
-            setGetProductByCategoryLoading,
+            setGetProductByCategoryLoadingFunc,
             // header img change
             changeHeaderImgFunc,
             headerImg,

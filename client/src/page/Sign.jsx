@@ -6,7 +6,7 @@ import { ContextUser } from '../context/CheckUserContext'
 import { useNavigate } from 'react-router-dom'
 const Sign = () => {
     const navigate = useNavigate()
-    const { apiClient, setSession } = useContext(ContextUser)
+    const { apiClient, setAuthStatus, checkJwtToken } = useContext(ContextUser)
 
     const [signInput, setsignInput] = useState({
         email: '',
@@ -25,17 +25,19 @@ const Sign = () => {
             toast.success(response.data.message)
             localStorage.setItem('userName', response.data.payload.Name)
             
-            // Wait a bit for cookie to be set, then check session
-            setTimeout(() => {
-                // Create a dummy token for localStorage session
-                const dummyToken = 'session_' + Date.now();
-                setSession(dummyToken);
-                navigate("/Admin")
-            }, 100)
+            console.log('Login successful, navigating to Admin...');
+            
+            // Set authentication status immediately
+            setAuthStatus(true);
+            
+            console.log('Login successful, navigating to Admin...');
+            
+            // Navigate immediately since we're using localStorage
+            window.location.href = '/Admin';
             
         } catch (error) {
             console.log(error)
-            toast.error(error.response.data.error)
+            toast.error(error.response?.data?.error || 'Giriş uğursuz oldu')
         }
     }
 
@@ -53,7 +55,7 @@ const Sign = () => {
                             <input
                                 onChange={handleChange}
                                 name='email'
-                                value={setsignInput.email}
+                                value={signInput.email}
                                 type="email"
                                 placeholder="E-poçtunuzu daxil edin"
                                 className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:outline-none"
@@ -64,7 +66,7 @@ const Sign = () => {
                             <input
                                 onChange={handleChange}
                                 name='password'
-                                value={setsignInput.password}
+                                value={signInput.password}
                                 type="password"
                                 placeholder="Şifrənizi daxil edin"
                                 className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:outline-none"

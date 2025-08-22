@@ -19,6 +19,77 @@
   overflow: hidden;
 }
 
+/* Rich text editor customizations */
+.ql-editor {
+  min-height: 180px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ql-toolbar {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  border-color: #d1d5db;
+}
+
+.ql-container {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  border-color: #d1d5db;
+}
+
+.ql-editor:focus {
+  border-color: #f97316;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
+}
+
+/* Rich text content styling */
+.rich-text-content {
+  line-height: 1.6;
+}
+
+.rich-text-content h1,
+.rich-text-content h2,
+.rich-text-content h3 {
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.rich-text-content p {
+  margin-bottom: 0.5rem;
+}
+
+.rich-text-content ul,
+.rich-text-content ol {
+  margin-left: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.rich-text-content li {
+  margin-bottom: 0.25rem;
+}
+
+.rich-text-content strong {
+  font-weight: 600;
+}
+
+.rich-text-content em {
+  font-style: italic;
+}
+
+.rich-text-content u {
+  text-decoration: underline;
+}
+
+.rich-text-content a {
+  color: #f97316;
+  text-decoration: underline;
+}
+
+.rich-text-content a:hover {
+  color: #ea580c;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

@@ -67,13 +67,15 @@ router.post("/Login", async (req, res) => {
             expiresIn: "24h",
         });
         res.cookie("jwtToken", token, {
-            httpOnly: false, // Allow JavaScript access
-            secure: false, // Set to true in production with HTTPS
-            sameSite: 'none', // Allow cross-site cookies
+            httpOnly: false,
+            secure: false,
+            sameSite: 'lax',
             maxAge: 1000 * 60 * 60 * 24, // 24 saat
-            path: '/',
-            domain: undefined // Let browser set the domain
+            path: '/'
         });
+
+        console.log('Cookie set:', token.substring(0, 20) + '...');
+        console.log('Response headers:', res.getHeaders());
 
         // res.json({message:"User Signin Successfully"})
         res.json({ message: "İstifadəçi uğurla daxil oldu", payload })
@@ -84,34 +86,19 @@ router.post("/Login", async (req, res) => {
 })
 
 router.post("/Logout", async (req, res) => {
-    const token = req.cookies.jwtToken;
-
     try {
-        if (!token) {
-            res.status(400).json({ message: "profile not sigin" });
-            return;
-        }
+        // Always clear the cookie regardless of whether token exists
         res.clearCookie("jwtToken", {
             httpOnly: false,
             secure: false,
-            sameSite: 'none',
-            path: '/',
-            domain: undefined
+            sameSite: 'lax',
+            path: '/'
         });
 
-        // res.clearCookie("jwtToken", {
-        //   domain: ".nabi.net.tr",  // Cookie'nin geçerli olduğu domain
-        //   httpOnly: true,
-        //   secure: true,
-        //   sameSite: "Strict",  // Aynı site isteği dışında erişimi kısıtlar
-        // });
-
-
-        //   res.status(200).json({ message: "Profile has been logged out" });
         res.status(200).json({ message: "Profil çıxış etdi" });
 
     } catch (error) {
-        console.log(error);
+        console.log('Logout error:', error);
         return res.status(500).json({ message: "Internal server error" });
     }
 });

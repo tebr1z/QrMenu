@@ -1,9 +1,22 @@
 import jwt from "jsonwebtoken";
 
 const CheckToken = async (req, res, next) => {
-    const token = req.cookies.jwtToken;
+    // Check for token in cookies first, then in Authorization header
+    let token = req.cookies.jwtToken;
+    
     if (!token) {
-        return res.status(403).json({ error: "Yetkiniz yoxdur" });
+        // Check Authorization header
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.substring(7);
+        }
+    }
+    
+    if (!token) {
+        console.log('No token found in cookies or Authorization header');
+        console.log('Cookies:', req.cookies);
+        console.log('Authorization header:', req.headers.authorization);
+        return res.status(401).json({ error: "Yetkiniz yoxdur - Token tapılmadı" });
     }
 
     try {
@@ -11,25 +24,27 @@ const CheckToken = async (req, res, next) => {
         req.user = verifyToken;
         next();
     } catch (error) {
+        console.log('Token verification error:', error.name, error.message);
 
         if (error.name === "TokenExpiredError") {
             res.clearCookie("jwtToken", {
-                httpOnly: true,
-                secure: true,
-                sameSite: "strict",
+                httpOnly: false,
+                secure: false,
+                sameSite: 'lax',
+                path: '/'
             });
-            res.status(403).json({ message: "Icazə vaxtı bitdi, yenidən giriş edin" });
+            res.status(401).json({ error: "Icazə vaxtı bitdi, yenidən giriş edin" });
             return
         }
 
         res.clearCookie("jwtToken", {
-            httpOnly: true,
-            secure: true,
-            sameSite: "strict",
+            httpOnly: false,
+            secure: false,
+            sameSite: 'lax',
+            path: '/'
         });
-        res.status(403).json({ message: "Internal Server Error" });
+        res.status(401).json({ error: "Etibarsız token" });
     }
-
 }
 
 export { CheckToken };

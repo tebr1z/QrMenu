@@ -1,11 +1,14 @@
 import React, { useContext, useState } from 'react'
 import FoodCadr from '../components/FoodCadr'
 import { ContextAdmin } from '../context/AdminContext'
+import Loading from '../components/Loading'
+
 const Home = () => {
-    const { category } = useContext(ContextAdmin)
+    const { categories, products } = useContext(ContextAdmin)
 
     const [filterCategory, setfilterCategory] = useState([])
     const [filterInput, setfilterInput] = useState('')
+
     const handleChangeFilterInput = (e) => {
         setfilterInput(e.target.value)
     }
@@ -22,13 +25,17 @@ const Home = () => {
     }
 
     const FilterFunc = () => {
-        const filterResponse = category.filter((cat) =>
+        const filterResponse = categories.filter((cat) =>
             normalizeString(cat.name.toLowerCase()).includes(normalizeString(filterInput.toLowerCase()))
         )
         setfilterCategory(filterResponse)
         console.log(filterResponse)
     }
 
+    // Show loading if categories are not loaded yet
+    if (categories.length === 0) {
+        return <Loading />
+    }
 
     return (
         <div className='pb-[100px]'>
@@ -81,12 +88,11 @@ const Home = () => {
             <div className='container mx-auto'>
                 <div className='grid grid-cols-3 gap-4 max-[991px]:grid-cols-2 max-[768px]:grid-cols-1 pt-[30px] max-[768px]:px-[15px]'>
                     {
-
                         filterCategory.length > 0 ?
                             filterCategory.map((item, index) => (
                                 <FoodCadr key={index} item={item} />
                             )) :
-                            category && category.map((item, index) => (
+                            categories && categories.map((item, index) => (
                                 <FoodCadr key={index} item={item} />
                             ))
                     }

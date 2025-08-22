@@ -5,29 +5,42 @@ import { ContextAdmin } from '../context/AdminContext';
 import Loading from '../components/Loading';
 
 const Detail = () => {
-    const { getProductByCategoryFunc, getProductByCategory, getProductByCategoryLoading, setGetProductByCategoryLoading, changeHeaderImgFunc, category } = useContext(ContextAdmin)
+    const { getProductByCategoryFunc, getProductByCategory, getProductByCategoryLoading, setGetProductByCategoryLoadingFunc, changeHeaderImgFunc, categories } = useContext(ContextAdmin)
     const { name } = useParams()
 
     useEffect(() => {
-        getProductByCategoryFunc(name)
+        const loadProductData = async () => {
+            try {
+                await getProductByCategoryFunc(name);
+            } catch (error) {
+                console.log('Error loading product data:', error);
+            }
+        };
+        
+        loadProductData();
         
         return () => {
-            setGetProductByCategoryLoading(true)
+            setGetProductByCategoryLoadingFunc(true)
             changeHeaderImgFunc('', '')
         }
     }, [name])
 
     useEffect(() => {
-        const headerData = category.find((cat) => cat.name === name);
-        if (headerData) {
-            changeHeaderImgFunc(headerData.image, headerData.name);
-        } else {
-            changeHeaderImgFunc('', '');
+        if (categories && categories.length > 0) {
+            const updateHeader = () => {
+                const headerData = categories.find((cat) => cat.name === name);
+                if (headerData) {
+                    changeHeaderImgFunc(headerData.image, headerData.name);
+                } else {
+                    changeHeaderImgFunc('', '');
+                }
+            };
+            updateHeader();
         }
         return () => {
             changeHeaderImgFunc('', '');
         };
-    }, [category, name]);
+    }, [categories, name]);
 
     const [filterProduct, setfilterProduct] = useState([])
     const [filterInput, setfilterInput] = useState('')

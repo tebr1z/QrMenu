@@ -14,6 +14,8 @@ const AdminTableManagePage = () => {
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState('');
   const [notificationType, setNotificationType] = useState('info'); // 'info', 'warning', 'error'
+  const [modalOrder, setModalOrder] = useState(null);
+  const [paidAmount, setPaidAmount] = useState(0);
   const timerRefs = useRef({});
   const audioRef = useRef(null);
   const notifiedSessions = useRef(new Set()); // Track which sessions have been notified
@@ -444,7 +446,6 @@ const AdminTableManagePage = () => {
   // Finish session: delete from backend, add to finished orders
   const handleFinish = async (session) => {
     setLoading(true);
-    // setError(''); // Removed as per edit hint
     try {
       const endTime = Date.now();
       const durationMs = endTime - session.startTime;
@@ -452,6 +453,7 @@ const AdminTableManagePage = () => {
       const totalFreeMinutes = session.selectedMenu.reduce((sum, item) => sum + (item.freeMinutes || 0), 0);
       let chargeableMinutes = durationMinutes - totalFreeMinutes;
       let freeInfo = '';
+      
       if (totalFreeMinutes > 0) {
         if (chargeableMinutes <= 0) {
           chargeableMinutes = 0;
@@ -460,9 +462,27 @@ const AdminTableManagePage = () => {
           freeInfo = `Məhsullara görə ${totalFreeMinutes} dəqiqə pulsuz vaxt, əlavə ${chargeableMinutes} dəqiqə üçün hesablandı`;
         }
       }
-      let hourTotal = (chargeableMinutes > 0) ? (chargeableMinutes * session.hourlyPrice) / 60 : 0;
+
+      // Yeni hesablanma qaydası:
+      // 1-30 dəqiqə: saatlıq qiymətin yarısı
+      // 31-60 dəqiqə: tam saatlıq qiymət
+      // 61-90 dəqiqə: 1.5 saatlıq qiymət
+      // 91-120 dəqiqə: 2 saatlıq qiymət və s.
+      let hourTotal = 0;
+      if (chargeableMinutes > 0) {
+        if (chargeableMinutes <= 30) {
+          // 1-30 dəqiqə: saatlıq qiymətin yarısı
+          hourTotal = session.hourlyPrice / 2;
+        } else {
+          // 31 dəqiqədən çox: tam saatlıq qiymət və ya daha çox
+          const fullHours = Math.ceil(chargeableMinutes / 60);
+          hourTotal = session.hourlyPrice * fullHours;
+        }
+      }
+
       const menuTotal = session.selectedMenu.reduce((sum, item) => sum + item.price, 0);
       const total = hourTotal + menuTotal;
+      
       const order = {
         tableId: session.tableId,
         tableName: session.tableName,
@@ -475,27 +495,68 @@ const AdminTableManagePage = () => {
         menuTotal,
         total,
         freeInfo,
+        chargeableMinutes,
+        pricingRule: chargeableMinutes <= 30 ? '30 dəqiqə qaydası (yarım saat)' : `${Math.ceil(chargeableMinutes / 60)} saat`
       };
-      // setModalOrder(order); // Removed as per edit hint
-      await api.post('/order/AddOrder', order);
-      await api.delete(`/tablesession/${session._id}`);
       
-      // Remove from local sessions
-      setSessions(prev => prev.filter(s => s._id !== session._id));
+      setModalOrder(order);
+      setPaidAmount(0);
+    } catch (err) {
+      console.error('Session bitirilərkən xəta:', err);
+      setNotification('Session bitirilərkən xəta baş verdi');
+      setNotificationType('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Complete payment and finish session
+  const handleCompletePayment = async () => {
+    if (!modalOrder) return;
+    
+    setLoading(true);
+    try {
+      // Add order to backend
+      await api.post('/order/AddOrder', modalOrder);
+      
+      // Delete session from backend
+      const session = sessions.find(s => s.tableId === modalOrder.tableId);
+      if (session) {
+        await api.delete(`/tablesession/${session._id}`);
+      }
+      
+      // Remove from local sessions immediately
+      setSessions(prev => prev.filter(s => s._id !== session?._id));
       
       // Clear local storage for this table
       const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (localData) {
         try {
           const parsedData = JSON.parse(localData);
-          const filteredSessions = (parsedData.sessions || []).filter(s => s.tableId !== session.tableId);
+          const filteredSessions = (parsedData.sessions || []).filter(s => s.tableId !== modalOrder.tableId);
           localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sessions: filteredSessions }));
         } catch (err) {
           console.error('Local storage təmizlənərkən xəta:', err);
         }
       }
+      
+      // Close modal immediately
+      setModalOrder(null);
+      setPaidAmount(0);
+      
+      setNotification('Ödəniş uğurla tamamlandı');
+      setNotificationType('info');
+      
+      // Clear notification after 2 seconds
+      setTimeout(() => {
+        setNotification('');
+        setNotificationType('info');
+      }, 2000);
+      
     } catch (err) {
-      // setError('Session bitirilərkən xəta baş verdi'); // Removed as per edit hint
+      console.error('Ödəniş tamamlanarkən xəta:', err);
+      setNotification('Ödəniş tamamlanarkən xəta baş verdi');
+      setNotificationType('error');
     } finally {
       setLoading(false);
     }
@@ -717,46 +778,150 @@ const AdminTableManagePage = () => {
           );
         })}
       </div>
-      {/* Modal for receipt - temporarily disabled
+      {/* Payment Modal */}
       {modalOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md relative border-t-8 border-green-500">
-            <button onClick={() => { setModalOrder(null); setPaidAmount(0); }} className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-            <h2 className="text-2xl font-bold mb-4 text-center text-green-700 tracking-tight">Çek</h2>
-            <div className="mb-2 text-center font-semibold text-lg">{modalOrder.tableName}</div>
-            <div className="flex flex-col gap-1 mb-2 text-sm text-gray-700">
-              <span>Başlama vaxtı: <b>{formatTime(modalOrder.startTime)}</b></span>
-              <span>Bitmə vaxtı: <b>{formatTime(modalOrder.endTime)}</b></span>
-              <span>Oturma müddəti: <b>{modalOrder.durationMinutes} dəqiqə</b></span>
-              <span>Saatlıq qiymət: <b>{modalOrder.hourlyPrice}₼</b></span>
-              <span>Vaxt cəmi: <b>{modalOrder.hourTotal.toFixed(2)}₼</b></span>
-              {modalOrder.freeInfo && (
-                <span className="text-xs text-blue-600 font-semibold">{modalOrder.freeInfo}</span>
-              )}
-              <span>Məhsullar: {modalOrder.selectedMenu.map(item => `${item.name} (${item.price}₼)`).join(', ') || 'Yoxdur'}</span>
-              <span>Məhsul cəmi: <b>{modalOrder.menuTotal}₼</b></span>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative border-t-8 border-green-500 flex flex-col max-h-[90vh]">
+            <button 
+              onClick={() => { setModalOrder(null); setPaidAmount(0); }} 
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-2xl font-bold z-10"
+            >
+              ×
+            </button>
+            
+            {/* Header - Fixed */}
+            <div className="p-8 pb-4 border-b border-gray-100">
+              <h2 className="text-2xl font-bold mb-6 text-center text-green-700 tracking-tight">Ödəniş Çeki</h2>
+              
+              <div className="mb-4 text-center">
+                <div className="text-xl font-bold text-gray-800 mb-2">{modalOrder.tableName}</div>
+                <div className="text-sm text-gray-600">Masa Ödənişi</div>
+              </div>
             </div>
-            <div className="text-2xl font-bold text-center text-green-800 mt-4">Ümumi: {modalOrder.total.toFixed(2)}₼</div>
-            <div className="mt-6 flex flex-col gap-2 items-center">
-              <label className="font-semibold text-gray-700">Nağd ödəniş (₼):</label>
-              <input
-                type="number"
-                min={0}
-                value={paidAmount}
-                onChange={e => setPaidAmount(Number(e.target.value))}
-                className="border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-orange-400 w-40 text-center text-lg"
-                placeholder="Ödənilən məbləğ"
-              />
-              {paidAmount > 0 && (
-                <div className="text-lg font-bold text-blue-700 mt-2">
-                  Geri qaytarılacaq məbləğ: {(paidAmount - modalOrder.total).toFixed(2)}₼
+            
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-8 pt-4">
+              <div className="space-y-3 mb-6">
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span className="text-gray-600">Başlama vaxtı:</span>
+                  <span className="font-semibold">{formatTime(modalOrder.startTime)}</span>
                 </div>
-              )}
+                
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span className="text-gray-600">Bitmə vaxtı:</span>
+                  <span className="font-semibold">{formatTime(modalOrder.endTime)}</span>
+                </div>
+                
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span className="text-gray-600">Oturma müddəti:</span>
+                  <span className="font-semibold">{modalOrder.durationMinutes} dəqiqə</span>
+                </div>
+                
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span className="text-gray-600">Saatlıq qiymət:</span>
+                  <span className="font-semibold">{modalOrder.hourlyPrice}₼</span>
+                </div>
+                
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span className="text-gray-600">Hesablanan vaxt:</span>
+                  <span className="font-semibold">{modalOrder.chargeableMinutes} dəqiqə</span>
+                </div>
+                
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span className="text-gray-600">Qiymət qaydası:</span>
+                  <span className="font-semibold text-blue-600">{modalOrder.pricingRule}</span>
+                </div>
+                
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span className="text-gray-600">Vaxt cəmi:</span>
+                  <span className="font-semibold text-blue-600">{modalOrder.hourTotal.toFixed(2)}₼</span>
+                </div>
+                
+                {modalOrder.chargeableMinutes > 30 && (
+                  <div className="bg-yellow-50 p-3 rounded-lg mb-3">
+                    <span className="text-sm text-yellow-700 font-medium">
+                      {modalOrder.chargeableMinutes} dəqiqə = {Math.ceil(modalOrder.chargeableMinutes / 60)} saat hesablanıb
+                    </span>
+                  </div>
+                )}
+                
+                {modalOrder.freeInfo && (
+                  <div className="bg-blue-50 p-3 rounded-lg">
+                    <span className="text-sm text-blue-700 font-medium">{modalOrder.freeInfo}</span>
+                  </div>
+                )}
+                
+                {modalOrder.selectedMenu.length > 0 && (
+                  <div className="border-t border-gray-200 pt-3">
+                    <div className="text-gray-600 mb-2">Məhsullar:</div>
+                    {modalOrder.selectedMenu.map((item, index) => (
+                      <div key={index} className="flex justify-between items-center py-1">
+                        <span className="text-sm">{item.name}</span>
+                        <span className="font-semibold">{item.price}₼</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between items-center py-2 border-t border-gray-100 mt-2">
+                      <span className="text-gray-600">Məhsul cəmi:</span>
+                      <span className="font-semibold">{modalOrder.menuTotal}₼</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <div className="text-2xl font-bold text-center text-green-800 mb-6 py-4 bg-green-50 rounded-lg">
+                Ümumi: {modalOrder.total.toFixed(2)}₼
+              </div>
+            </div>
+            
+            {/* Fixed Footer with Payment Controls */}
+            <div className="p-8 pt-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+              <div className="space-y-4">
+                <div className="flex flex-col gap-2">
+                  <label className="font-semibold text-gray-700 text-center">Müştərinin verdiyi məbləğ (₼):</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={paidAmount}
+                    onChange={e => setPaidAmount(Number(e.target.value))}
+                    className="border-2 border-gray-300 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-green-400 w-full text-center text-xl font-semibold"
+                    placeholder="0.00"
+                  />
+                </div>
+                
+                {paidAmount > 0 && (
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-blue-700 mb-2">
+                      Qaytarılacaq məbləğ: {(paidAmount - modalOrder.total).toFixed(2)}₼
+                    </div>
+                    {paidAmount < modalOrder.total && (
+                      <div className="text-sm text-red-600">
+                        Əlavə ödəniş tələb olunur: {(modalOrder.total - paidAmount).toFixed(2)}₼
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setModalOrder(null); setPaidAmount(0); }}
+                    className="flex-1 px-4 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-semibold transition"
+                  >
+                    Ləğv et
+                  </button>
+                  <button
+                    onClick={handleCompletePayment}
+                    disabled={paidAmount < modalOrder.total}
+                    className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Ödənişi Tamamla
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
-      */}
     </div>
   );
 };

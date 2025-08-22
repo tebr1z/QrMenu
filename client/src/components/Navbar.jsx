@@ -2,7 +2,9 @@ import React, { useContext } from 'react'
 import { Link } from 'react-router-dom'
 import { ContextUser } from '../context/CheckUserContext'
 const Navbar = () => {
-    const { hasJwtToken } = useContext(ContextUser)
+    const userContext = useContext(ContextUser)
+    const hasJwtToken = userContext?.hasJwtToken || false
+    
     return (
         <div className="fixed bottom-0 left-0 w-full bg-white z-50 shadow-lg border-t border-gray-200">
             <div className="flex justify-around items-center py-3">

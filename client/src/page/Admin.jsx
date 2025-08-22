@@ -6,38 +6,43 @@ import { ContextUser } from '../context/CheckUserContext';
 import Loading from '../components/Loading';
 
 const Admin = () => {
-    const { hasJwtToken } = useContext(ContextUser)
+    const { hasJwtToken, checkJwtToken } = useContext(ContextUser)
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
     useEffect(() => {
-        // Add a small delay to allow context to initialize
-        const timer = setTimeout(() => {
-            if (hasJwtToken === false) {
-                navigate("/Sign");
-            } else if (hasJwtToken === true) {
+        // Check authentication status
+        const checkAuth = () => {
+            const isAuthenticated = checkJwtToken();
+            if (!isAuthenticated) {
+                window.location.href = '/Sign';
+            } else {
                 setLoading(false);
             }
-        }, 100);
+        };
+
+        // Add a small delay to allow context to initialize
+        const timer = setTimeout(checkAuth, 100);
 
         return () => clearTimeout(timer);
-    }, [hasJwtToken, navigate]);
+    }, [checkJwtToken]);
 
     // Show loading while checking session
-    if (loading || hasJwtToken === null) {
+    if (loading) {
         return <Loading />;
     }
 
     // Don't render anything if not authenticated
-    if (hasJwtToken === false) {
+    if (!hasJwtToken) {
         return null;
     }
 
     return (
-        <div className='h-full flex '>
-            {/* <HeaderAdmin /> */}
+        <div className='min-h-screen flex bg-gray-50'>
             <Sidebar />
-            <Outlet />
+            <div className='flex-1 ml-64 pb-20'>
+                <Outlet />
+            </div>
         </div>
     );
 };

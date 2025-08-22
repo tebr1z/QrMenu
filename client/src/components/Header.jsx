@@ -2,7 +2,10 @@ import React, { useContext } from 'react'
 import { ContextAdmin } from '../context/AdminContext'
 
 const Header = () => {
-    const { headerImg, headerName } = useContext(ContextAdmin)
+    const adminContext = useContext(ContextAdmin)
+    const headerImg = adminContext?.headerImg
+    const headerName = adminContext?.headerName
+    
     return (
         <div className="relative w-full h-64 bg-gray-300">
             <img
