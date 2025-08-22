@@ -1,7 +1,7 @@
 import express from 'express';
 import { CheckToken } from '../middleware/CkeckToken.js';
 import Category from '../model/CategoryModal.js';
-import cloudinary from "cloudinary";
+import { v2 as cloudinary } from "cloudinary";
 const router = express.Router();
 
 
@@ -49,37 +49,81 @@ router.put("/UpdateCategoryOrder", async (req, res) => {
 // router.use(CheckToken);
 
 router.post("/AddCategory", async (req, res) => {
+    // Log the request for debugging
+    console.log('=== AddCategory Request ===');
+    console.log('Request body:', req.body);
+    console.log('Request files:', req.files);
+    console.log('Files keys:', req.files ? Object.keys(req.files) : 'No files');
+    
     const { name } = req.body;
     let imageCategory = req.files && req.files.imageCategory;
     let imageId = null;
+    
+    console.log('Extracted data:');
+    console.log('- name:', name);
+    console.log('- imageCategory:', imageCategory);
+    
     if (!name) {
         return res.status(422).json({ error: "Zəhmət olmasa, bir ad daxil edin" });
     }
 
     if (imageCategory) {
         try {
+            console.log('Uploading category image to Cloudinary...');
+            console.log('Image file:', imageCategory.name);
+            console.log('Image temp path:', imageCategory.tempFilePath);
+            console.log('Image size:', imageCategory.size, 'bytes');
+            
+            // Upload to Cloudinary
             const uploadImg = await cloudinary.uploader.upload(
                 imageCategory.tempFilePath,
                 {
                     use_filename: true,
                     folder: "Home",
+                    resource_type: "auto",
+                    transformation: [
+                        { width: 400, height: 400, crop: "fill" }
+                    ]
                 }
             );
-            imageCategory = uploadImg.url;
+
+            console.log('Cloudinary upload successful:');
+            console.log('URL:', uploadImg.url);
+            console.log('Public ID:', uploadImg.public_id);
+            console.log('Secure URL:', uploadImg.secure_url);
+            
+            // Use secure URL for better compatibility
+            imageCategory = uploadImg.secure_url || uploadImg.url;
             imageId = uploadImg.public_id;
+            
+            console.log('Final image URL:', imageCategory);
+            console.log('Final image ID:', imageId);
+            
         } catch (error) {
-            console.log(error);
-            return res.status(500).json({ error: "Şəkil yüklənərkən xəta baş verdi" });
+            console.log('Image upload error:', error);
+            console.log('Error details:', error.message);
+            console.log('Error stack:', error.stack);
+            return res.status(500).json({ error: "Şəkil yüklənərkən xəta baş verdi: " + error.message });
         }
     }
 
     try {
+        console.log('Creating new category with data:');
+        console.log('- name:', name);
+        console.log('- image:', imageCategory ? imageCategory : undefined);
+        console.log('- imageId:', imageId);
+        
         const newCategory = new Category({
             name,
             image: imageCategory ? imageCategory : undefined,
             imageId
         });
         await newCategory.save();
+        
+        console.log('Saved category from database:', newCategory);
+        console.log('Category image field:', newCategory.image);
+        console.log('Category imageId field:', newCategory.imageId);
+        
         res.status(201).json({ message: "Kateqoriya əlavə edildi", newCategory });
     } catch (error) {
         console.log(error)
@@ -87,11 +131,23 @@ router.post("/AddCategory", async (req, res) => {
 })
 
 router.put("/UpdateCategory/:id", async (req, res) => {
+    // Log the request for debugging
+    console.log('=== UpdateCategory Request ===');
+    console.log('Category ID:', req.params.id);
+    console.log('Request body:', req.body);
+    console.log('Request files:', req.files);
+    console.log('Files keys:', req.files ? Object.keys(req.files) : 'No files');
+    
     const { id } = req.params;
     const { name } = req.body;
     let imageCategory = req.files && req.files.imageCategory;
 
     let updateCategory = {};
+    
+    console.log('Extracted data:');
+    console.log('- id:', id);
+    console.log('- name:', name);
+    console.log('- imageCategory:', imageCategory);
 
     if (name) {
         updateCategory.name = name;
@@ -127,6 +183,7 @@ router.put("/UpdateCategory/:id", async (req, res) => {
 
 
     try {
+        console.log('Final updateCategory object before database update:', updateCategory);
 
         const category = await Category.findByIdAndUpdate(
             {
@@ -141,6 +198,10 @@ router.put("/UpdateCategory/:id", async (req, res) => {
         if (!category) {
             return res.status(404).json({ message: "Kateqoriya tapılmadı" });
         }
+
+        console.log('Updated category from database:', category);
+        console.log('Category image field:', category.image);
+        console.log('Category imageId field:', category.imageId);
 
         res.status(200).json({ message: " Kateqoriya yeniləndi", category });
 

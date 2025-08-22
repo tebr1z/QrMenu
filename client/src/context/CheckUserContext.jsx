@@ -12,9 +12,6 @@ const CheckUserContext = ({ children }) => {
     const apiClient = axios.create({
         baseURL: apiUrl,
         withCredentials: true, // Important for cookies
-        headers: {
-            'Content-Type': 'application/json',
-        },
         timeout: 10000, // 10 second timeout
     });
 
@@ -50,6 +47,13 @@ const CheckUserContext = ({ children }) => {
                     console.error('Session data parse error:', error);
                 }
             }
+            
+            // If FormData is being sent, don't set Content-Type header
+            // Let the browser set it automatically with boundary
+            if (config.data instanceof FormData) {
+                delete config.headers['Content-Type'];
+            }
+            
             return config;
         },
         (error) => {

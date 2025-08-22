@@ -14,12 +14,30 @@ const AdminCategoryList = ({ category, handleModalToggle }) => {
                 <i className="bi bi-grip-vertical text-xl group-hover:text-orange-500"></i>
             </div>
 
-            <div className="w-20 h-20 flex-shrink-0 rounded-full overflow-hidden border border-gray-300">
-                <img
-                    src={category.image}
-                    alt={category.name}
-                    className="w-full h-full object-cover"
-                />
+            <div className="w-20 h-20 flex-shrink-0 rounded-full overflow-hidden border border-gray-300 bg-gray-50 flex items-center justify-center">
+                {category.image && 
+                 category.image.trim() !== '' && 
+                 !category.image.includes('placeholder.png') && 
+                 !category.image.startsWith('data:image/svg+xml') &&
+                 !category.image.includes('iseu.bsu.by') ? (
+                    <img
+                        src={category.image}
+                        alt={category.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                            console.log('Image load error for:', category.name, 'URL:', category.image);
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'flex';
+                        }}
+                    />
+                ) : null}
+                <div className={`flex items-center justify-center text-gray-400 ${(category.image && 
+                 category.image.trim() !== '' && 
+                 !category.image.includes('placeholder.png') && 
+                 !category.image.startsWith('data:image/svg+xml') &&
+                 !category.image.includes('iseu.bsu.by')) ? 'hidden' : 'flex'}`}>
+                    <i className="bi bi-image text-xl"></i>
+                </div>
             </div>
 
             <div className="flex-1 ml-4 max-[768px]:py-[20px]">

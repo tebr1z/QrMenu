@@ -87,15 +87,31 @@ const AdminProductList = ({ product, handleModalToggle }) => {
                 <i className="bi bi-grip-vertical text-lg"></i>
             </div>
             {/* Image */}
-            <div className="w-full h-48 rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
-                <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                    onError={(e) => {
-                        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMDAgNzBDMTE2LjU2OSA3MCAxMzAgODMuNDMxIDMwIDEwMEMxMzAgMTE2LjU2OSAxMTYuNTY5IDEzMCAxMDAgMTMwQzgzLjQzMSAxMzAgNzAgMTE2LjU2OSA3MCAxMEM3MCA4My40MzEgODMuNDMxIDcwIDEwMCA3MFoiIGZpbGw9IiNEMzE3RjYiLz4KPHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIwIDIwQzIyLjA5MDkgMjAgMjQgMTguMDkwOSAyNCAxNkMyNCAxMy45MDkxIDIyLjA5MDkgMTIgMjAgMTJDMTcuOTA5MSAxMiAxNiAxMy45MDkxIDE2IDE2QzE2IDE4LjA5MDkgMTcuOTA5MSAyMCAyMCAyMFoiIGZpbGw9IiNGRkZGRkYiLz4KPC9zdmc+Cg==';
-                    }}
-                />
+            <div className="w-full h-48 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex items-center justify-center">
+                {product.image && 
+                 product.image.trim() !== '' && 
+                 !product.image.includes('placeholder.png') && 
+                 !product.image.startsWith('data:image/svg+xml') &&
+                 !product.image.includes('iseu.bsu.by') ? (
+                    <img
+                        src={product.image}
+                        alt={product.name}
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                            console.log('Image load error for:', product.name, 'URL:', product.image);
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'flex';
+                        }}
+                    />
+                ) : null}
+                <div className={`flex flex-col items-center justify-center text-gray-400 ${(product.image && 
+                 product.image.trim() !== '' && 
+                 !product.image.includes('placeholder.png') && 
+                 !product.image.startsWith('data:image/svg+xml') &&
+                 !product.image.includes('iseu.bsu.by')) ? 'hidden' : 'flex'}`}>
+                    <i className="bi bi-image text-4xl mb-2"></i>
+                    <p className="text-sm">Şəkil yoxdur</p>
+                </div>
             </div>
             
             {/* Content */}

@@ -3,7 +3,7 @@ import bodyParser from 'body-parser';
 import cors from 'cors';
 import fileUpload from 'express-fileupload';
 import mongoose from 'mongoose';
-import clodinary from 'cloudinary';
+import { v2 as cloudinary } from 'cloudinary';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 
@@ -17,9 +17,9 @@ import { ClodinaryConnection } from './connection/ClodinaryConnection.js';
 const app = express();
 dotenv.config();
 
-const PORT = process.env.PORT || 4545;
+const PORT = process.env.PORT || 4549;
 const corsOptions = {
-    origin: 'http://localhost:5173', // Specific origin
+    origin: 'https://pm.vexirahost.com/', // Specific origin
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],

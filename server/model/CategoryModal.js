@@ -9,7 +9,7 @@ const categorySchema = mongoose.Schema({
     image: {
         type: String,
         trim: true,
-        default: 'https://www.iseu.bsu.by/en/wp-content/plugins/elementor/assets/images/placeholder.png'
+        default: ''
     },
     imageId: {
         type: String,

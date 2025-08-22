@@ -3,7 +3,7 @@ import { ContextAdmin } from '../../context/AdminContext';
 import Loading from '../Loading';
 
 const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory }) => {
-    const { newCategoryFunc, categoryLoading, updateCategoryFunc } = useContext(ContextAdmin)
+    const { addCategoryFunc, categoryLoading, updateCategoryFunc } = useContext(ContextAdmin)
     // change image catgeory 
     const [selectedImage, setSelectedImage] = useState({
         imageUrl: null,
@@ -114,10 +114,11 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory }) =
                     {
                         editCategory ? <button
                             onClick={async () => {
-                                await updateCategoryFunc(editCategory._id, {
+                                const updateResult = await updateCategoryFunc(editCategory._id, {
                                     name: categoryInput,
                                     imageFile: selectedImage.imageFile,
                                 })
+                                console.log('Update category result:', updateResult);
                                 setSelectedImage({
                                     imageUrl: editCategory.image,
                                     imageFile: null,
@@ -129,10 +130,15 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory }) =
                             Yenilə
                         </button> : <button
                             onClick={async () => {
-                                await newCategoryFunc({
+                                console.log('Adding category with data:', {
+                                    name: categoryInput,
+                                    imageFile: selectedImage.imageFile
+                                });
+                                const addResult = await addCategoryFunc({
                                     name: categoryInput,
                                     imageFile: selectedImage.imageFile,
                                 })
+                                console.log('Add category result:', addResult);
                                 setSelectedImage({
                                     imageUrl: null,
                                     imageFile: null,

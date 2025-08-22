@@ -10,9 +10,6 @@ const AdminContext = ({ children }) => {
         const client = axios.create({
             baseURL: apiUrl,
             withCredentials: true,
-            headers: {
-                'Content-Type': 'application/json',
-            },
             timeout: 10000,
         });
 
@@ -30,6 +27,13 @@ const AdminContext = ({ children }) => {
                 if (token) {
                     config.headers.Authorization = `Bearer ${token}`;
                 }
+                
+                // If FormData is being sent, don't set Content-Type header
+                // Let the browser set it automatically with boundary
+                if (config.data instanceof FormData) {
+                    delete config.headers['Content-Type'];
+                }
+                
                 return config;
             },
             (error) => Promise.reject(error)
@@ -56,11 +60,18 @@ const AdminContext = ({ children }) => {
     const addCategoryFunc = useCallback(async (category) => {
         setCategoryLoading(true)
         try {
+            console.log('Adding category with data:', category);
             const data = new FormData()
             data.append('name', category.name)
             data.append('imageCategory', category.imageFile)
+            
+            console.log('FormData entries:');
+            for (let [key, value] of data.entries()) {
+                console.log(`${key}:`, value);
+            }
 
             const response = await apiClient.post('/Category/AddCategory', data)
+            console.log('Server response:', response.data);
             setNewCategory(response.data)
             toast.success(response.data.message)
             setCategoryLoading(false)
@@ -75,10 +86,19 @@ const AdminContext = ({ children }) => {
     const updateCategoryFunc = useCallback(async (id, category) => {
         setCategoryLoading(true)
         try {
+            console.log('Updating category with ID:', id);
+            console.log('Category data:', category);
             const data = new FormData()
             data.append('name', category.name)
             data.append('imageCategory', category.imageFile)
+            
+            console.log('FormData entries:');
+            for (let [key, value] of data.entries()) {
+                console.log(`${key}:`, value);
+            }
+            
             const response = await apiClient.put(`/Category/UpdateCategory/${id}`, data)
+            console.log('Server response:', response.data);
             setUpdateCategory(response.data.category)
             toast.success(response.data.message)
             setCategoryLoading(false)
@@ -152,7 +172,14 @@ const AdminContext = ({ children }) => {
     const addProductFunc = useCallback(async (product) => {
         setProductLoading(true)
         try {
+            console.log('Sending product data to server:', product);
+            console.log('FormData entries:');
+            for (let [key, value] of product.entries()) {
+                console.log(`${key}:`, value);
+            }
+            
             const response = await apiClient.post('/Product/AddProduct', product)
+            console.log('Server response:', response.data);
             setNewProduct(response.data)
             toast.success(response.data.message)
             setProductLoading(false)
@@ -173,7 +200,23 @@ const AdminContext = ({ children }) => {
     const updateProductFunc = useCallback(async (id, product) => {
         setProductLoading(true)
         try {
+            console.log('Updating product with ID:', id);
+            console.log('Sending product data to server:', product);
+            console.log('FormData type check:', product instanceof FormData);
+            console.log('FormData entries:');
+            for (let [key, value] of product.entries()) {
+                console.log(`${key}:`, value);
+            }
+            
+            // Log request config
+            console.log('Request config before sending:');
+            console.log('- URL:', `/Product/UpdateProduct/${id}`);
+            console.log('- Method:', 'PUT');
+            console.log('- Data type:', typeof product);
+            console.log('- Headers:', apiClient.defaults.headers);
+            
             const response = await apiClient.put(`/Product/UpdateProduct/${id}`, product)
+            console.log('Server response:', response.data);
             setUpdateProduct(response.data.product)
             toast.success(response.data.message)
             setProductLoading(false)

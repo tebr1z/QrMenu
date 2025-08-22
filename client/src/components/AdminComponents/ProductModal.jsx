@@ -18,6 +18,7 @@ const ProductModal = ({ isOpen, onClose, product }) => {
     
     const [imagePreview, setImagePreview] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [colorPickerOpen, setColorPickerOpen] = useState(false)
     const descriptionRef = useRef(null)
     
     // Reset form when modal opens/closes or product changes
@@ -62,6 +63,18 @@ const ProductModal = ({ isOpen, onClose, product }) => {
             }
         }
     }, [isOpen, product])
+    
+    // Close color picker when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (colorPickerOpen && !event.target.closest('.color-picker')) {
+                setColorPickerOpen(false);
+            }
+        };
+        
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [colorPickerOpen]);
     
     // Rich text editor functions
     const execCommand = (command, value = null) => {
@@ -184,16 +197,29 @@ const ProductModal = ({ isOpen, onClose, product }) => {
             submitData.append('category', formData.category)
             
             if (formData.image) {
-                submitData.append('image', formData.image)
+                console.log('Adding image to FormData:', formData.image);
+                console.log('Image type:', formData.image.type);
+                console.log('Image size:', formData.image.size);
+                submitData.append('imageProduct', formData.image)
+                
+                // Log FormData after adding image
+                console.log('FormData after adding image:');
+                for (let [key, value] of submitData.entries()) {
+                    console.log(`${key}:`, value);
+                }
+            } else {
+                console.log('No image selected');
             }
             
             if (product) {
                 // Update existing product
-                await updateProductFunc(product._id, submitData)
+                const updateResult = await updateProductFunc(product._id, submitData)
+                console.log('Update result:', updateResult);
                 toast.success('Məhsul uğurla yeniləndi')
         } else {
                 // Add new product
-                await addProductFunc(submitData)
+                const addResult = await addProductFunc(submitData)
+                console.log('Add result:', addResult);
                 toast.success('Məhsul uğurla əlavə edildi')
             }
             
@@ -402,6 +428,57 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                             >
                                 <i className="bi bi-palette-fill" style={{color: '#10b981'}}></i>
                             </button>
+                            <button
+                                type="button"
+                                onClick={() => execCommand('foreColor', '#000000')}
+                                className="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-100"
+                                title="Qara rəng"
+                            >
+                                <i className="bi bi-palette-fill" style={{color: '#000000'}}></i>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => execCommand('foreColor', '#6b7280')}
+                                className="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-100"
+                                title="Boz rəng"
+                            >
+                                <i className="bi bi-palette-fill" style={{color: '#6b7280'}}></i>
+                            </button>
+                            
+                            {/* Rəng Seçimi Dropdown */}
+                            <div className="relative color-picker">
+                                <button
+                                    type="button"
+                                    className="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-100 flex items-center gap-1"
+                                    title="Rəng seç"
+                                    onClick={() => setColorPickerOpen(!colorPickerOpen)}
+                                >
+                                    <i className="bi bi-palette-fill"></i>
+                                    <i className="bi bi-chevron-down text-xs"></i>
+                                </button>
+                                
+                                {colorPickerOpen && (
+                                    <div className="absolute top-full left-0 mt-1 p-2 bg-white border border-gray-300 rounded-lg shadow-lg z-10 grid grid-cols-4 gap-1">
+                                        {[
+                                            '#000000', '#6b7280', '#ef4444', '#f97316',
+                                            '#eab308', '#10b981', '#3b82f6', '#8b5cf6',
+                                            '#ec4899', '#ffffff', '#f3f4f6', '#d1d5db'
+                                        ].map(color => (
+                                            <button
+                                                key={color}
+                                                type="button"
+                                                onClick={() => {
+                                                    execCommand('foreColor', color);
+                                                    setColorPickerOpen(false);
+                                                }}
+                                                className="w-6 h-6 rounded border border-gray-300 hover:scale-110 transition-transform"
+                                                style={{ backgroundColor: color }}
+                                                title={`Rəng: ${color}`}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         
                         {/* Rich Text Editor */}

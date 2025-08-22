@@ -52,10 +52,33 @@ const FoodDetail = ({ item }) => {
                     <p className="text-lg font-bold text-orange-600">{item.price}₼</p>
                 </div>
             </div>
-            <div className="w-[150px] h-[85px] flex-shrink-0">
-                <img style={{
-                    mixBlendMode: 'darken',
-                }} className="w-full h-full object-contain rounded-md" src={`${item.image}`} alt="Toyuq Şorbası" />
+            <div className="w-[150px] h-[85px] flex-shrink-0 flex items-center justify-center bg-gray-50 rounded-md">
+                {item.image && 
+                 item.image.trim() !== '' && 
+                 !item.image.includes('placeholder.png') && 
+                 !item.image.startsWith('data:image/svg+xml') &&
+                 !item.image.includes('iseu.bsu.by') ? (
+                    <img 
+                        style={{
+                            mixBlendMode: 'darken',
+                        }} 
+                        className="w-full h-full object-contain rounded-md" 
+                        src={item.image} 
+                        alt={item.name}
+                        onError={(e) => {
+                            console.log('Image load error for:', item.name, 'URL:', item.image);
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'flex';
+                        }}
+                    />
+                ) : null}
+                <div className={`flex flex-col items-center justify-center text-gray-400 ${(item.image && 
+                 item.image.trim() !== '' && 
+                 !item.image.includes('placeholder.png') && 
+                 !item.image.startsWith('data:image/svg+xml') &&
+                 !item.image.includes('iseu.bsu.by')) ? 'hidden' : 'flex'}`}>
+                    <i className="bi bi-image text-xl"></i>
+                </div>
             </div>
         </div>
 
