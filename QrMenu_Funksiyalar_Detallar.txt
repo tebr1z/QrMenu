@@ -1,0 +1,718 @@
+================================================================================
+                           QR MENU SAYTI - BÜTÜN FUNKSİYALAR VƏ DETALLAR
+================================================================================
+
+📱 SAYT HAQQINDA:
+- Sayt Adı: QR Menu
+- Məqsəd: Restoran/kafe üçün rəqəmsal menyu sistemi
+- Texnologiya: React + Node.js + MongoDB + Cloudinary
+- Port: Client (5173), Server (4548)
+
+================================================================================
+🏗️ ARXITEKTURA VƏ STRUKTUR:
+
+1. CLIENT (Frontend):
+   - React 19.1.1
+   - Tailwind CSS
+   - React Router DOM
+   - React Toastify
+   - @dnd-kit (drag & drop)
+
+2. SERVER (Backend):
+   - Node.js + Express.js
+   - MongoDB + Mongoose
+   - Cloudinary (şəkil yükləmə)
+   - JWT Authentication
+   - Express File Upload
+
+3. VERİLƏNLƏR:
+   - MongoDB veritabanı
+   - Cloudinary şəkil saxlama
+   - Local Storage (session)
+
+================================================================================
+🔐 AUTHENTICATION SİSTEMİ:
+
+1. GİRİŞ (Login):
+   - Email/şifrə ilə giriş
+   - JWT token yaradılması
+   - Cookie və Local Storage saxlanması
+   - Session müddəti: 24 saat
+
+2. ÇIXIŞ (Logout):
+   - JWT token təmizlənməsi
+   - Cookie silinməsi
+   - Local Storage təmizlənməsi
+   - Ana səhifəyə yönləndirmə
+
+3. TOKEN YOXLAMA:
+   - Hər request-də token yoxlanması
+   - Middleware ilə qorunmuş route-lar
+   - Token vaxtı keçəndə avtomatik çıxış
+
+================================================================================
+👤 İSTİFADƏÇİ ROLU:
+
+1. ADMIN (İdarəçi):
+   - Bütün funksiyalara giriş
+   - Məhsul/kateqoriya idarəetməsi
+   - Masalar idarəetməsi
+   - Sifariş idarəetməsi
+
+2. MÜŞTƏRİ (Public):
+   - Ana səhifə (kateqoriyalar)
+   - Məhsul detalları
+   - QR kod ilə masaya giriş
+
+================================================================================
+🏠 ANA SƏHİFƏ (Home):
+
+1. KATEQORİYALAR:
+   - Bütün kateqoriyaların göstərilməsi
+   - Şəkil + ad ilə kart formatında
+   - Responsive grid layout
+   - Hover effektləri
+
+2. NAVİGASYON:
+   - Header (logo, nav)
+   - Bottom navbar (ev, telefon, saat, user)
+   - Responsive design
+
+3. FUNKSİYALAR:
+   - Kateqoriya siyahısı yüklənməsi
+   - Şəkil göstərilməsi (fallback icon)
+   - Kateqoriyaya yönləndirmə
+
+================================================================================
+📋 KATEQORİYA İDARƏETMƏSİ (Admin):
+
+1. KATEQORİYA SİYAHISI:
+   - Bütün kateqoriyaların göstərilməsi
+   - Grid layout (responsive)
+   - Hər kateqoriya üçün kart
+
+2. KATEQORİYA KARTI:
+   - Şəkil (80x80px, yuvarlaq)
+   - Ad
+   - Düzəliş et düyməsi
+   - Sil düyməsi
+   - Drag handle (sürükləmə üçün)
+
+3. YENİ KATEQORİYA:
+   - Modal pəncərə
+   - Ad daxil etmə
+   - Şəkil yükləmə (drag & drop)
+   - Preview
+   - Yadda saxla düyməsi
+
+4. KATEQORİYA DÜZƏLİŞİ:
+   - Mövcud məlumatları yükləmə
+   - Ad dəyişdirmə
+   - Şəkil dəyişdirmə
+   - Yenilə düyməsi
+
+5. DRAG & DROP:
+   - Kateqoriyaların sırasını dəyişmə
+   - @dnd-kit istifadəsi
+   - Backend-də sıra saxlanması
+   - Real-time yeniləmə
+
+================================================================================
+🛍️ MƏHSUL İDARƏETMƏSİ (Admin):
+
+1. MƏHSUL SİYAHISI:
+   - Bütün məhsulların göstərilməsi
+   - Grid layout (1-4 sütun)
+   - Kateqoriya ilə filtrasiya
+   - Axtarış funksiyası
+
+2. MƏHSUL KARTI:
+   - Şəkil (150x85px)
+   - Ad (2 sətir limit)
+   - Təsvir (rich text)
+   - Kateqoriya adı
+   - Pulsuz dəqiqə
+   - Qiymət (₼)
+   - Düzəliş et düyməsi
+   - Sil düyməsi
+   - Drag handle
+
+3. YENİ MƏHSUL:
+   - Modal pəncərə
+   - Ad daxil etmə
+   - Təsvir (rich text editor)
+   - Qiymət daxil etmə
+   - Pulsuz dəqiqə
+   - Kateqoriya seçimi
+   - Şəkil yükləmə
+   - Yadda saxla düyməsi
+
+4. MƏHSUL DÜZƏLİŞİ:
+   - Mövcud məlumatları yükləmə
+   - Bütün sahələri dəyişdirmə
+   - Şəkil dəyişdirmə
+   - Yenilə düyməsi
+
+5. RICH TEXT EDITOR:
+   - Bold (qalın)
+   - Italic (italik)
+   - Underline (alt xətt)
+   - Unordered list (siyahı)
+   - Ordered list (nömrəli siyahı)
+   - Rəng seçimi:
+     * Qara (#000000)
+     * Boz (#6b7280)
+     * Narıncı (#ff6b35)
+     * Mavi (#3b82f6)
+     * Yaşıl (#10b981)
+     * Qırmızı (#ef4444)
+     * Sarı (#eab308)
+     * Bənövşəyi (#8b5cf6)
+     * Çəhrayı (#ec4899)
+     * Ağ (#ffffff)
+     * Açıq boz (#f3f4f6)
+     * Orta boz (#d1d5db)
+   - Rəng palitrası dropdown
+   - HTML məzmunun təmizlənməsi
+
+6. DRAG & DROP:
+   - Məhsulların sırasını dəyişmə
+   - Kateqoriya daxilində sıralama
+   - Backend-də sıra saxlanması
+   - Real-time yeniləmə
+
+================================================================================
+🖼️ ŞƏKİL İDARƏETMƏSİ:
+
+1. ŞƏKİL YÜKLƏMƏ:
+   - File input
+   - Drag & drop
+   - Preview
+   - Format yoxlaması (image/*)
+
+2. CLOUDINARY:
+   - Şəkillərin yüklənməsi
+   - Transformasiya (800x600 limit)
+   - Folder: "Home"
+   - Secure URL istifadəsi
+
+3. ŞƏKİL GÖSTƏRİLMƏSİ:
+   - Fallback icon (şəkil yoxdursa)
+   - Error handling
+   - Responsive design
+   - Hover effektləri
+
+4. ŞƏKİL TƏMİZLƏMƏ:
+   - Köhnə placeholder URL-lərin silinməsi
+   - Base64 SVG-lərin təmizlənməsi
+   - Cloudinary ID-lərin saxlanması
+
+================================================================================
+🍽️ MƏHSUL DETALLARI (Public):
+
+1. KATEQORİYA SƏHİFƏSİ:
+   - Kateqoriya adı
+   - Header şəkli
+   - Məhsulların siyahısı
+
+2. MƏHSUL KARTI:
+   - Şəkil (150x85px)
+   - Ad
+   - Təsvir (rich text formatında)
+   - Qiymət (₼)
+   - Pulsuz dəqiqə
+
+3. RICH TEXT GÖSTƏRİLMƏSİ:
+   - HTML məzmunun təmizlənməsi
+   - Rənglərin saxlanması
+   - Bold/italic/underline
+   - Siyahı formatı
+   - Line break-lərin saxlanması
+
+================================================================================
+🪑 MASA İDARƏETMƏSİ (Admin):
+
+1. MASA SİYAHISI:
+   - Bütün masaların göstərilməsi
+   - Status (boş, dolu, qapalı)
+   - QR kod
+   - Müştəri məlumatları
+
+2. MASA AÇMA:
+   - Müştəri adı daxil etmə
+   - Başlama vaxtı
+   - Status dəyişdirmə
+
+3. MASA BAĞLAMA:
+   - Müştəri məlumatları
+   - Başlama vaxtı
+   - Bitmə vaxtı
+   - Müddət hesablanması
+   - Qiymət hesablanması
+
+4. QİYMƏT HESABLANMASI:
+   - 1-30 dəqiqə: Saatlıq qiymətin yarısı
+   - 31+ dəqiqə: Saatlıq qiymət × ceil(dəqiqə/60)
+   - Cumulative pricing
+   - Pulsuz dəqiqələrin çıxarılması
+
+5. ÖDƏNİŞ MODALI:
+   - Sifariş məlumatları
+   - Müddət və qiymət
+   - Müştərinin verdiyi məbləğ
+   - Qaytarılan məbləğ
+   - Ödənişi tamamla düyməsi
+
+================================================================================
+📱 QR KOD SİSTEMİ:
+
+1. QR KOD YARADILMASI:
+   - Hər masa üçün unikal QR
+   - Masa ID-si ilə
+   - URL formatında
+
+2. QR KOD OXUNMASI:
+   - Müştəri tərəfindən
+   - Masa səhifəsinə yönləndirmə
+   - Məhsulların göstərilməsi
+
+3. MASA SƏHİFƏSİ:
+   - Kateqoriyalar
+   - Məhsullar
+   - Sifariş əlavə etmə
+   - Sifariş siyahısı
+
+================================================================================
+🛒 SİFARİŞ SİSTEMİ:
+
+1. SİFARİŞ ƏLAVƏ ETMƏ:
+   - Məhsul seçimi
+   - Miqdar daxil etmə
+   - Qiymət hesablanması
+   - Sifariş siyahısına əlavə
+
+2. SİFARİŞ SİYAHISI:
+   - Seçilən məhsullar
+   - Miqdar və qiymət
+   - Ümumi məbləğ
+   - Sifarişi təsdiqlə
+
+3. SİFARİŞ TƏSDİQLƏMƏ:
+   - Backend-ə göndərilməsi
+   - Database-ə yazılması
+   - Masa session-a əlavə
+
+================================================================================
+🔧 TEXNİK DETALLAR:
+
+1. STATE MANAGEMENT:
+   - React Context API
+   - Local state
+   - Global state
+
+2. API İNTEGRASYASI:
+   - Axios client
+   - Request/response interceptors
+   - Error handling
+   - Loading states
+
+3. FORM VALIDATION:
+   - Required fields
+   - Type checking
+   - Error messages
+   - Toast notifications
+
+4. RESPONSIVE DESIGN:
+   - Mobile-first approach
+   - Tailwind CSS
+   - Breakpoint system
+   - Grid layouts
+
+5. PERFORMANCE:
+   - useCallback
+   - useMemo
+   - Lazy loading
+   - Image optimization
+
+================================================================================
+📊 VERİTABANI MODELLƏRİ:
+
+1. USER MODEL:
+   - ID
+   - Name
+   - Email
+   - Password (hashed)
+   - Role
+   - CreatedAt
+
+2. CATEGORY MODEL:
+   - ID
+   - Name
+   - Image
+   - ImageId (Cloudinary)
+   - Order
+   - CreatedAt
+
+3. PRODUCT MODEL:
+   - ID
+   - Name
+   - Description (HTML)
+   - Price
+   - Image
+   - ImageId (Cloudinary)
+   - Category (ref)
+   - FreeMinutes
+   - Order
+   - CreatedAt
+
+4. TABLE MODEL:
+   - ID
+   - Number
+   - Status
+   - HourlyPrice
+   - QRCode
+
+5. TABLE SESSION MODEL:
+   - ID
+   - Table (ref)
+   - CustomerName
+   - StartTime
+   - EndTime
+   - Status
+   - Orders (array)
+
+6. ORDER MODEL:
+   - ID
+   - Product (ref)
+   - Quantity
+   - Price
+   - TableSession (ref)
+   - CreatedAt
+
+================================================================================
+🌐 API ROUTES:
+
+1. AUTH ROUTES:
+   - POST /api/Auth/Register
+   - POST /api/Auth/Login
+   - POST /api/Auth/Logout
+
+2. CATEGORY ROUTES:
+   - GET /api/Category/GetCategory
+   - POST /api/Category/AddCategory
+   - PUT /api/Category/UpdateCategory/:id
+   - DELETE /api/Category/DeleteCategory/:id
+   - PUT /api/Category/UpdateCategoryOrder
+
+3. PRODUCT ROUTES:
+   - GET /api/Product/GetProduct
+   - GET /api/Product/GetProduct/:name
+   - POST /api/Product/AddProduct
+   - PUT /api/Product/UpdateProduct/:id
+   - DELETE /api/Product/DeleteProduct/:id
+   - PUT /api/Product/UpdateProductOrder
+
+4. TABLE ROUTES:
+   - GET /api/Table/GetTable
+   - POST /api/Table/AddTable
+   - PUT /api/Table/UpdateTable/:id
+   - DELETE /api/Table/DeleteTable/:id
+
+5. TABLE SESSION ROUTES:
+   - GET /api/TableSession/GetTableSession
+   - POST /api/TableSession/AddTableSession
+   - PUT /api/TableSession/UpdateTableSession/:id
+   - DELETE /api/TableSession/DeleteTableSession/:id
+
+6. ORDER ROUTES:
+   - GET /api/Order/GetOrder
+   - POST /api/Order/AddOrder
+   - PUT /api/Order/UpdateOrder/:id
+   - DELETE /api/Order/DeleteOrder/:id
+
+================================================================================
+🔒 TƏHLÜKƏSİZLİK:
+
+1. AUTHENTICATION:
+   - JWT tokens
+   - HttpOnly cookies
+   - Session management
+   - Token expiration
+
+2. AUTHORIZATION:
+   - Role-based access
+   - Protected routes
+   - Middleware checks
+   - Permission validation
+
+3. DATA VALIDATION:
+   - Input sanitization
+   - Type checking
+   - Required fields
+   - Error handling
+
+4. FILE UPLOAD:
+   - File type validation
+   - Size limits
+   - Cloudinary integration
+   - Secure storage
+
+================================================================================
+📱 RESPONSIVE BREAKPOINTS:
+
+1. MOBILE (< 768px):
+   - 1 sütun grid
+   - Full width cards
+   - Stacked layouts
+   - Touch-friendly buttons
+
+2. TABLET (768px - 1024px):
+   - 2 sütun grid
+   - Medium width cards
+   - Balanced layouts
+
+3. DESKTOP (> 1024px):
+   - 3-4 sütun grid
+   - Wide cards
+   - Hover effects
+   - Advanced interactions
+
+================================================================================
+🎨 UI/UX XÜSUSİYYƏTLƏRİ:
+
+1. COLOR SCHEME:
+   - Primary: Orange (#ff6b35)
+   - Secondary: Blue (#3b82f6)
+   - Success: Green (#10b981)
+   - Warning: Yellow (#eab308)
+   - Error: Red (#ef4444)
+   - Neutral: Gray (#6b7280)
+
+2. TYPOGRAPHY:
+   - Headings: Bold, large
+   - Body: Regular, readable
+   - Buttons: Medium, clear
+   - Labels: Small, subtle
+
+3. SPACING:
+   - Consistent margins
+   - Proper padding
+   - Grid gaps
+   - Component spacing
+
+4. ANIMATIONS:
+   - Hover effects
+   - Transitions
+   - Loading states
+   - Smooth interactions
+
+================================================================================
+🚀 PERFORMANCE OPTİMİZASYASI:
+
+1. CODE SPLITTING:
+   - Lazy loading
+   - Route-based splitting
+   - Component optimization
+
+2. IMAGE OPTİMİZASYASI:
+   - Cloudinary transformations
+   - Responsive images
+   - Lazy loading
+   - Fallback handling
+
+3. STATE OPTİMİZASYASI:
+   - useCallback hooks
+   - useMemo hooks
+   - Context optimization
+   - Local state management
+
+4. API OPTİMİZASYASI:
+   - Request caching
+   - Response optimization
+   - Error handling
+   - Loading states
+
+================================================================================
+🐛 DEBUG VƏ LOGGİNG:
+
+1. CLIENT LOGS:
+   - Console logs
+   - Error tracking
+   - State changes
+   - API calls
+
+2. SERVER LOGS:
+   - Request logging
+   - Error logging
+   - Database operations
+   - File uploads
+
+3. CLOUDINARY LOGS:
+   - Upload status
+   - Transformation results
+   - Error handling
+   - File information
+
+================================================================================
+📋 TEST FUNKSİYALARI:
+
+1. UNIT TESTS:
+   - Component testing
+   - Function testing
+   - State testing
+   - API testing
+
+2. INTEGRATION TESTS:
+   - API integration
+   - Database operations
+   - File uploads
+   - Authentication
+
+3. USER TESTS:
+   - Functionality testing
+   - UI/UX testing
+   - Responsive testing
+   - Performance testing
+
+================================================================================
+🔧 DEPLOYMENT:
+
+1. CLIENT:
+   - Vite build
+   - Static hosting
+   - Environment variables
+   - API configuration
+
+2. SERVER:
+   - Node.js hosting
+   - MongoDB connection
+   - Cloudinary setup
+   - Environment variables
+
+3. DATABASE:
+   - MongoDB Atlas
+   - Connection string
+   - Backup strategy
+   - Monitoring
+
+================================================================================
+📚 İSTİFADƏ EDİLƏN KİTABXANALAR:
+
+1. FRONTEND:
+   - React 19.1.1
+   - React Router DOM
+   - React Toastify
+   - @dnd-kit
+   - Tailwind CSS
+   - Bootstrap Icons
+
+2. BACKEND:
+   - Express.js
+   - Mongoose
+   - Cloudinary
+   - JWT
+   - Bcrypt
+   - CORS
+
+3. DEVELOPMENT:
+   - Vite
+   - ESLint
+   - Prettier
+   - Git
+   - NPM
+
+================================================================================
+🎯 GƏLƏCƏK FUNKSİYALAR:
+
+1. REAL-TIME:
+   - WebSocket integration
+   - Live updates
+   - Notifications
+   - Chat system
+
+2. ANALYTICS:
+   - Sales reports
+   - Customer analytics
+   - Performance metrics
+   - Usage statistics
+
+3. MOBILE APP:
+   - React Native
+   - Push notifications
+   - Offline support
+   - Native features
+
+4. PAYMENT:
+   - Online payment
+   - Card integration
+   - Invoice generation
+   - Receipt system
+
+================================================================================
+📞 DƏSTƏK VƏ ƏLAQƏ:
+
+1. TECHNICAL SUPPORT:
+   - Error reporting
+   - Bug fixes
+   - Feature requests
+   - Documentation
+
+2. USER SUPPORT:
+   - User guide
+   - FAQ
+   - Video tutorials
+   - Help center
+
+3. MAINTENANCE:
+   - Regular updates
+   - Security patches
+   - Performance optimization
+   - Backup management
+
+================================================================================
+📝 QEYDLƏR:
+
+1. IMPORTANT:
+   - JWT token müddəti: 24 saat
+   - Şəkil limiti: 800x600px
+   - Session müddəti: 24 saat
+   - API timeout: 10 saniyə
+
+2. LIMITATIONS:
+   - Şəkil ölçüsü: 5MB
+   - Məhsul sayı: limitsiz
+   - Kateqoriya sayı: limitsiz
+   - Masa sayı: limitsiz
+
+3. REQUIREMENTS:
+   - Modern browser
+   - JavaScript enabled
+   - Internet connection
+   - Responsive device
+
+================================================================================
+✨ XÜLASƏ:
+
+QR Menu saytı tam funksional rəqəmsal menyu sistemidir ki, aşağıdakı əsas xüsusiyyətlərə malikdir:
+
+✅ Tam admin paneli
+✅ Məhsul və kateqoriya idarəetməsi
+✅ Rich text editor
+✅ Şəkil yükləmə (Cloudinary)
+✅ Drag & drop funksiyası
+✅ Masa idarəetməsi
+✅ QR kod sistemi
+✅ Sifariş sistemi
+✅ Responsive design
+✅ JWT authentication
+✅ Real-time yeniləmələr
+
+Sayt həm restoran/kafe sahibləri, həm də müştərilər üçün istifadəçi dostu interfeys təqdim edir.
+
+================================================================================
+📅 SON YENİLƏMƏ: 22 Avqust 2025
+👨‍💻 DEVELOPER: AI Assistant
+🌐 VERSIYA: 1.0.0
+📱 STATUS: Production Ready
+================================================================================
+

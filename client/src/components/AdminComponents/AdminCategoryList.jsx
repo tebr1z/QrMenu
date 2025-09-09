@@ -7,12 +7,8 @@ const AdminCategoryList = ({ category, handleModalToggle }) => {
     return (
         <div
             key={category._id}
-            className="flex items-center max-[768px]:flex-col bg-white shadow-md rounded-lg p-4 hover:shadow-lg transition cursor-move group"
+            className="flex items-center max-[768px]:flex-col bg-white shadow-md rounded-lg p-4 hover:shadow-lg transition group"
         >
-            {/* Drag Handle */}
-            <div className="mr-3 text-gray-400 hover:text-gray-600 cursor-move p-1 rounded hover:bg-gray-100 transition-colors">
-                <i className="bi bi-grip-vertical text-xl group-hover:text-orange-500"></i>
-            </div>
 
             <div className="w-20 h-20 flex-shrink-0 rounded-full overflow-hidden border border-gray-300 bg-gray-50 flex items-center justify-center">
                 {category.image && 
@@ -48,7 +44,10 @@ const AdminCategoryList = ({ category, handleModalToggle }) => {
 
             <div className="flex space-x-2">
                 <button
-                    onClick={() => handleModalToggle(category)}
+                    onClick={() => {
+                        console.log('Düzəliş et button clicked for category:', category);
+                        handleModalToggle(category);
+                    }}
                     className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
                 >
                     Düzəliş et

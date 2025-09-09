@@ -17,9 +17,9 @@ import { ClodinaryConnection } from './connection/ClodinaryConnection.js';
 const app = express();
 dotenv.config();
 
-const PORT = process.env.PORT || 4549;
+const PORT = process.env.PORT || 4548;
 const corsOptions = {
-    origin: 'https://pm.vexirahost.com/', // Specific origin
+    origin: 'http://localhost:5173', // Specific origin
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],

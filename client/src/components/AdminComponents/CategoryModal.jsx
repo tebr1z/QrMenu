@@ -2,7 +2,8 @@ import React, { useState, useEffect, useContext } from 'react'
 import { ContextAdmin } from '../../context/AdminContext';
 import Loading from '../Loading';
 
-const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory }) => {
+const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory, onClose }) => {
+    console.log('CategoryModal props:', { isOpen, editCategory, onClose });
     const { addCategoryFunc, categoryLoading, updateCategoryFunc } = useContext(ContextAdmin)
     // change image catgeory 
     const [selectedImage, setSelectedImage] = useState({
@@ -30,13 +31,16 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory }) =
 
 
     useEffect(() => {
+        console.log('CategoryModal useEffect - editCategory changed:', editCategory);
         if (editCategory) {
+            console.log('Setting form data for editing category:', editCategory);
             setCategoryInput(editCategory.name || '');
             setSelectedImage({
                 imageUrl: editCategory.image || null,
                 imageFile: null,
             });
         } else {
+            console.log('Setting form data for new category');
             setCategoryInput('')
             setSelectedImage({
                 imageUrl: null,
@@ -46,10 +50,11 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory }) =
     }, [editCategory]);
 
 
+    console.log('CategoryModal render - isOpen:', isOpen);
+    
     return (
-        isOpen &&
         <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50 backdrop-blur-sm">
-            <div className="bg-white w-96 p-6 rounded-lg shadow-lg">
+            <div className="bg-white w-96 p-6 rounded-lg shadow-lg max-h-[90vh] overflow-y-auto">
                 <h2 className="text-lg font-bold mb-4">{editCategory ? 'Kateqoriyanı Yenilə' : 'Yeni Kateqoriya Əlavə Et'} </h2>
 
                 {/* Category Name Input */}
@@ -107,7 +112,13 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory }) =
                 <div className="flex justify-end space-x-2 mt-4">
                     <button
                         className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition duration-300"
-                        onClick={handleModalToggle}
+                        onClick={() => {
+                            if (onClose) {
+                                onClose();
+                            } else {
+                                setIsOpen(false);
+                            }
+                        }}
                     >
                         Ləğv et
                     </button>
@@ -124,7 +135,11 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory }) =
                                     imageFile: null,
                                 })
                                 setCategoryInput(editCategory.name)
-                                setIsOpen(false)
+                                if (onClose) {
+                                    onClose();
+                                } else {
+                                    setIsOpen(false);
+                                }
                             }}
                             className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition duration-300">
                             Yenilə
@@ -144,7 +159,11 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory }) =
                                     imageFile: null,
                                 })
                                 setCategoryInput('')
-                                setIsOpen(false)
+                                if (onClose) {
+                                    onClose();
+                                } else {
+                                    setIsOpen(false);
+                                }
                             }}
                             className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition duration-300">
                             Yadda saxla

@@ -11,11 +11,15 @@ const AdminTableManagePage = () => {
   const [tables, setTables] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState('');
   const [notificationType, setNotificationType] = useState('info'); // 'info', 'warning', 'error'
   const [modalOrder, setModalOrder] = useState(null);
   const [paidAmount, setPaidAmount] = useState(0);
+  const [productDiscounts, setProductDiscounts] = useState({}); // {productId: discountPercentage}
+  const [pricingMethod, setPricingMethod] = useState('rounded'); // '30min', 'minute', 'rounded'
   const timerRefs = useRef({});
   const audioRef = useRef(null);
   const notifiedSessions = useRef(new Set()); // Track which sessions have been notified
@@ -213,6 +217,10 @@ const AdminTableManagePage = () => {
           if (parsedData.sessions && parsedData.sessions.length > 0) {
             setSessions(parsedData.sessions);
           }
+          // Restore pricing method
+          if (parsedData.pricingMethod) {
+            setPricingMethod(parsedData.pricingMethod);
+          }
         }
       } catch (err) {
         console.error('Local storage data yüklənərkən xəta:', err);
@@ -232,25 +240,28 @@ const AdminTableManagePage = () => {
     };
   }, []);
 
-  // Save data to local storage whenever sessions change
+  // Save data to local storage whenever sessions or pricing method change
   useEffect(() => {
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sessions }));
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sessions, pricingMethod }));
     } catch (err) {
       console.error('Local storage-a yazılarkən xəta:', err);
     }
-  }, [sessions]);
+  }, [sessions, pricingMethod]);
 
-  // Fetch tables, active sessions, and products from backend
+  // Fetch tables, active sessions, products, and categories from backend
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [tablesRes, sessionsRes, productsRes] = await Promise.all([
+        const [tablesRes, sessionsRes, productsRes, categoriesRes] = await Promise.all([
           api.get('/table/GetTables'),
           api.get('/tablesession/Active'),
           api.get('/Product/GetProduct'),
+          api.get('/Category/GetCategory'),
         ]);
+        
+        console.log('Categories response:', categoriesRes.data);
         setTables(Array.isArray(tablesRes.data) ? tablesRes.data : []);
         
         // Merge backend sessions with local storage data
@@ -278,8 +289,11 @@ const AdminTableManagePage = () => {
 
         setSessions(mergedSessions);
         setProducts(Array.isArray(productsRes.data) ? productsRes.data : []);
+        setCategories(Array.isArray(categoriesRes.data) ? categoriesRes.data : []);
       } catch (err) {
-        // setError('Məlumatlar yüklənmədi'); // Removed as per edit hint
+        console.error('Data fetch error:', err);
+        setNotification('Məlumatlar yüklənmədi: ' + (err.message || 'Naməlum xəta'));
+        setNotificationType('error');
       } finally {
         setLoading(false);
       }
@@ -463,20 +477,61 @@ const AdminTableManagePage = () => {
         }
       }
 
-      // Yeni hesablanma qaydası:
-      // 1-30 dəqiqə: saatlıq qiymətin yarısı
-      // 31-60 dəqiqə: tam saatlıq qiymət
-      // 61-90 dəqiqə: 1.5 saatlıq qiymət
-      // 91-120 dəqiqə: 2 saatlıq qiymət və s.
+      // Hesablama qaydası seçilən metoda görə
       let hourTotal = 0;
+      let pricingRule = '';
+      
       if (chargeableMinutes > 0) {
-        if (chargeableMinutes <= 30) {
-          // 1-30 dəqiqə: saatlıq qiymətin yarısı
-          hourTotal = session.hourlyPrice / 2;
-        } else {
-          // 31 dəqiqədən çox: tam saatlıq qiymət və ya daha çox
-          const fullHours = Math.ceil(chargeableMinutes / 60);
-          hourTotal = session.hourlyPrice * fullHours;
+        switch (pricingMethod) {
+          case '30min':
+            // 30 dəqiqə qaydası (köhnə sistem)
+            if (chargeableMinutes <= 30) {
+              hourTotal = session.hourlyPrice / 2;
+              pricingRule = '30 dəqiqə qaydası (yarım saat)';
+            } else {
+              const fullHours = Math.ceil(chargeableMinutes / 60);
+              hourTotal = session.hourlyPrice * fullHours;
+              pricingRule = `${fullHours} saat (yuvarlaqlaşdırılmış)`;
+            }
+            break;
+            
+          case 'minute':
+            // Dəqiqə əsaslı hesablama
+            const pricePerMinute = session.hourlyPrice / 60;
+            hourTotal = chargeableMinutes * pricePerMinute;
+            pricingRule = `Dəqiqə əsaslı (${pricePerMinute.toFixed(3)}₼/dəqiqə)`;
+            break;
+            
+          case 'rounded':
+            // 10 qəpiklik yuvarlaqlaşdırma qaydası (pula görə)
+            const pricePerMinuteRounded = session.hourlyPrice / 60;
+            const exactTotal = chargeableMinutes * pricePerMinuteRounded;
+            
+            // 10 qəpiklik yuvarlaqlaşdırma
+            // 21-29 qəpik → 30 qəpik
+            // 31-39 qəpik → 40 qəpik
+            // 41-49 qəpik → 50 qəpik
+            // və s.
+            const qepik = Math.round(exactTotal * 100) % 100; // Qəpik hissəsi
+            let roundedQepik = qepik;
+            
+            if (qepik > 0) {
+              // 10 qəpiklik intervallarla yuvarlaqlaşdırma
+              roundedQepik = Math.ceil(qepik / 10) * 10;
+            }
+            
+            // Yuvarlaqlaşdırılmış məbləğ
+            const manat = Math.floor(exactTotal);
+            hourTotal = manat + (roundedQepik / 100);
+            
+            pricingRule = `10 qəpiklik yuvarlaqlaşdırma (${exactTotal.toFixed(2)}₼→${hourTotal.toFixed(2)}₼)`;
+            break;
+            
+          default:
+            // Default: dəqiqə əsaslı
+            const pricePerMinuteDefault = session.hourlyPrice / 60;
+            hourTotal = chargeableMinutes * pricePerMinuteDefault;
+            pricingRule = `Dəqiqə əsaslı (${pricePerMinuteDefault.toFixed(3)}₼/dəqiqə)`;
         }
       }
 
@@ -496,11 +551,12 @@ const AdminTableManagePage = () => {
         total,
         freeInfo,
         chargeableMinutes,
-        pricingRule: chargeableMinutes <= 30 ? '30 dəqiqə qaydası (yarım saat)' : `${Math.ceil(chargeableMinutes / 60)} saat`
+        pricingRule
       };
       
       setModalOrder(order);
       setPaidAmount(0);
+      setProductDiscounts({});
     } catch (err) {
       console.error('Session bitirilərkən xəta:', err);
       setNotification('Session bitirilərkən xəta baş verdi');
@@ -508,6 +564,46 @@ const AdminTableManagePage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Calculate product discount amount
+  const calculateProductDiscount = (price, discountPercentage) => {
+    return (price * discountPercentage) / 100;
+  };
+
+  // Calculate product total after discount
+  const calculateProductTotal = (price, discountPercentage) => {
+    const discountAmount = calculateProductDiscount(price, discountPercentage);
+    return price - discountAmount;
+  };
+
+  // Calculate total menu amount with individual product discounts
+  const calculateMenuTotalWithDiscounts = (selectedMenu, discounts) => {
+    return selectedMenu.reduce((sum, item) => {
+      const productId = item._id || item.id;
+      const discount = discounts[productId] || 0;
+      const discountedPrice = calculateProductTotal(item.price, discount);
+      return sum + discountedPrice;
+    }, 0);
+  };
+
+  // Calculate final total including product discounts
+  const calculateFinalTotalWithProductDiscounts = (hourTotal, selectedMenu, discounts) => {
+    const menuTotal = calculateMenuTotalWithDiscounts(selectedMenu, discounts);
+    return hourTotal + menuTotal;
+  };
+
+  // Filter products by selected category
+  const getFilteredProducts = () => {
+    if (!selectedCategory) return [];
+    return products.filter(product => {
+      // Check if product.category is an object (populated) or string (ObjectId)
+      if (typeof product.category === 'object' && product.category !== null) {
+        return product.category._id === selectedCategory;
+      } else {
+        return product.category === selectedCategory;
+      }
+    });
   };
 
   // Complete payment and finish session
@@ -543,6 +639,7 @@ const AdminTableManagePage = () => {
       // Close modal immediately
       setModalOrder(null);
       setPaidAmount(0);
+      setProductDiscounts({});
       
       setNotification('Ödəniş uğurla tamamlandı');
       setNotificationType('info');
@@ -665,6 +762,75 @@ const AdminTableManagePage = () => {
       </style>
       <h1 className="text-3xl font-bold mb-8 text-gray-800 text-center tracking-tight">Masaların idarəsi</h1>
       
+      {/* Debug info */}
+      <div className="bg-yellow-50 p-3 rounded-lg mb-4 text-sm">
+        <div>Kateqoriyalar sayı: {categories.length}</div>
+        <div>Məhsullar sayı: {products.length}</div>
+        <div>Seçilən kateqoriya: {selectedCategory || 'Yox'}</div>
+        <div>Filtrlənmiş məhsullar sayı: {getFilteredProducts().length}</div>
+        {selectedCategory && (
+          <div className="mt-2">
+            <div className="font-semibold">Məhsul məlumatları:</div>
+            {products.slice(0, 3).map((product, index) => (
+              <div key={index} className="text-xs">
+                {product.name} - Category: {typeof product.category === 'object' ? product.category?._id : product.category}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      {/* Hesablama Qaydası Seçimi */}
+      <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">Hesablama Qaydası</h3>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center space-x-2 cursor-pointer">
+            <input
+              type="radio"
+              name="pricingMethod"
+              value="30min"
+              checked={pricingMethod === '30min'}
+              onChange={(e) => setPricingMethod(e.target.value)}
+              className="w-4 h-4 text-blue-600"
+            />
+            <span className="text-sm font-medium text-gray-700">
+              30 Dəqiqə Qaydası
+              <span className="block text-xs text-gray-500">1-30 dəqiqə: yarım saat, 31+ dəqiqə: tam saat</span>
+            </span>
+          </label>
+          
+          <label className="flex items-center space-x-2 cursor-pointer">
+            <input
+              type="radio"
+              name="pricingMethod"
+              value="minute"
+              checked={pricingMethod === 'minute'}
+              onChange={(e) => setPricingMethod(e.target.value)}
+              className="w-4 h-4 text-blue-600"
+            />
+            <span className="text-sm font-medium text-gray-700">
+              Dəqiqə Əsaslı
+              <span className="block text-xs text-gray-500">Hər dəqiqə üçün dəqiq hesablama</span>
+            </span>
+          </label>
+          
+          <label className="flex items-center space-x-2 cursor-pointer">
+            <input
+              type="radio"
+              name="pricingMethod"
+              value="rounded"
+              checked={pricingMethod === 'rounded'}
+              onChange={(e) => setPricingMethod(e.target.value)}
+              className="w-4 h-4 text-blue-600"
+            />
+            <span className="text-sm font-medium text-gray-700">
+              10 Qəpiklik Yuvarlaqlaşdırma
+              <span className="block text-xs text-gray-500">21-29→30, 31-39→40, 41-49→50, 51-59→60, 61-69→70</span>
+            </span>
+          </label>
+        </div>
+      </div>
+      
       
       {loading && <div className="text-gray-500 mb-4">Yüklənir...</div>}
       {/* error && <div className="text-red-500 mb-4">{error}</div> */} {/* Removed as per edit hint */}
@@ -735,19 +901,44 @@ const AdminTableManagePage = () => {
                   <div className="flex items-center gap-2 mb-1">
                     <i className="bi bi-plus-circle text-blue-500"></i>
                     <span className="text-xs text-gray-500">Menyu əlavə et:</span>
-                    <select
-                      value=""
-                      onChange={e => {
-                        handleAddMenuToSession(session._id, e.target.value);
-                        e.target.value = "";
-                      }}
-                      className="border px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
-                    >
-                      <option value="" disabled>Seçin</option>
-                      {products.map(item => (
-                        <option key={item._id || item.id} value={item._id || item.id}>{item.name} ({item.price}₼)</option>
-                      ))}
-                    </select>
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedCategory}
+                        onChange={e => {
+                          setSelectedCategory(e.target.value);
+                        }}
+                        className="border px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      >
+                        <option value="" disabled>Kateqoriya seçin</option>
+                        {categories.length > 0 ? (
+                          categories.map(category => (
+                            <option key={category._id || category.id} value={category._id || category.id}>
+                              {category.name}
+                            </option>
+                          ))
+                        ) : (
+                          <option value="" disabled>Kateqoriya yoxdur</option>
+                        )}
+                      </select>
+                      
+                      {selectedCategory && (
+                        <select
+                          value=""
+                          onChange={e => {
+                            handleAddMenuToSession(session._id, e.target.value);
+                            e.target.value = "";
+                          }}
+                          className="border px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
+                        >
+                          <option value="" disabled>Məhsul seçin</option>
+                          {getFilteredProducts().map(item => (
+                            <option key={item._id || item.id} value={item._id || item.id}>
+                              {item.name} ({item.price}₼)
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   </div>
                   {session.selectedMenu.length > 0 && (
                     <div className="mb-2 flex flex-wrap gap-2 mt-2">
@@ -783,7 +974,7 @@ const AdminTableManagePage = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative border-t-8 border-green-500 flex flex-col max-h-[90vh]">
             <button 
-              onClick={() => { setModalOrder(null); setPaidAmount(0); }} 
+              onClick={() => { setModalOrder(null); setPaidAmount(0); setProductDiscounts({}); }} 
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-2xl font-bold z-10"
             >
               ×
@@ -837,13 +1028,14 @@ const AdminTableManagePage = () => {
                   <span className="font-semibold text-blue-600">{modalOrder.hourTotal.toFixed(2)}₼</span>
                 </div>
                 
-                {modalOrder.chargeableMinutes > 30 && (
-                  <div className="bg-yellow-50 p-3 rounded-lg mb-3">
-                    <span className="text-sm text-yellow-700 font-medium">
-                      {modalOrder.chargeableMinutes} dəqiqə = {Math.ceil(modalOrder.chargeableMinutes / 60)} saat hesablanıb
-                    </span>
-                  </div>
-                )}
+                <div className="bg-blue-50 p-3 rounded-lg mb-3">
+                  <span className="text-sm text-blue-700 font-medium">
+                    {pricingMethod === 'rounded' && modalOrder.pricingRule.includes('→') 
+                      ? modalOrder.pricingRule.split('(')[1].split(')')[0]
+                      : `${modalOrder.chargeableMinutes} dəqiqə × ${(modalOrder.hourlyPrice / 60).toFixed(3)}₼/dəqiqə = ${modalOrder.hourTotal.toFixed(2)}₼`
+                    }
+                  </span>
+                </div>
                 
                 {modalOrder.freeInfo && (
                   <div className="bg-blue-50 p-3 rounded-lg">
@@ -854,22 +1046,65 @@ const AdminTableManagePage = () => {
                 {modalOrder.selectedMenu.length > 0 && (
                   <div className="border-t border-gray-200 pt-3">
                     <div className="text-gray-600 mb-2">Məhsullar:</div>
-                    {modalOrder.selectedMenu.map((item, index) => (
-                      <div key={index} className="flex justify-between items-center py-1">
-                        <span className="text-sm">{item.name}</span>
-                        <span className="font-semibold">{item.price}₼</span>
-                      </div>
-                    ))}
+                    {modalOrder.selectedMenu.map((item, index) => {
+                      const productId = item._id || item.id;
+                      const discount = productDiscounts[productId] || 0;
+                      const discountedPrice = calculateProductTotal(item.price, discount);
+                      const discountAmount = calculateProductDiscount(item.price, discount);
+                      
+                      return (
+                        <div key={index} className="py-2 border-b border-gray-100 last:border-b-0">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm font-medium">{item.name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Endirim:</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.1"
+                                value={discount}
+                                onChange={(e) => {
+                                  const newDiscount = Number(e.target.value);
+                                  setProductDiscounts(prev => ({
+                                    ...prev,
+                                    [productId]: newDiscount
+                                  }));
+                                }}
+                                className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-xs"
+                                placeholder="0"
+                              />
+                              <span className="text-xs text-gray-500">%</span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-gray-600">
+                              {item.price}₼
+                              {discount > 0 && (
+                                <span className="text-red-600 ml-2">
+                                  (-{discountAmount.toFixed(2)}₼)
+                                </span>
+                              )}
+                            </span>
+                            <span className="font-semibold text-green-700">
+                              {discountedPrice.toFixed(2)}₼
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
                     <div className="flex justify-between items-center py-2 border-t border-gray-100 mt-2">
                       <span className="text-gray-600">Məhsul cəmi:</span>
-                      <span className="font-semibold">{modalOrder.menuTotal}₼</span>
+                      <span className="font-semibold">
+                        {calculateMenuTotalWithDiscounts(modalOrder.selectedMenu, productDiscounts).toFixed(2)}₼
+                      </span>
                     </div>
                   </div>
                 )}
               </div>
               
               <div className="text-2xl font-bold text-center text-green-800 mb-6 py-4 bg-green-50 rounded-lg">
-                Ümumi: {modalOrder.total.toFixed(2)}₼
+                Ümumi: {calculateFinalTotalWithProductDiscounts(modalOrder.hourTotal, modalOrder.selectedMenu, productDiscounts).toFixed(2)}₼
               </div>
             </div>
             
@@ -882,8 +1117,29 @@ const AdminTableManagePage = () => {
                     type="number"
                     min={0}
                     step="0.01"
-                    value={paidAmount}
-                    onChange={e => setPaidAmount(Number(e.target.value))}
+                    value={paidAmount === 0 ? '' : paidAmount}
+                    onChange={e => {
+                      const value = e.target.value;
+                      if (value === '' || value === '0') {
+                        setPaidAmount(0);
+                      } else {
+                        const numValue = parseFloat(value);
+                        if (!isNaN(numValue) && numValue >= 0) {
+                          setPaidAmount(numValue);
+                        }
+                      }
+                    }}
+                    onFocus={e => {
+                      if (e.target.value === '0') {
+                        e.target.value = '';
+                      }
+                    }}
+                    onBlur={e => {
+                      if (e.target.value === '') {
+                        setPaidAmount(0);
+                        e.target.value = '0';
+                      }
+                    }}
                     className="border-2 border-gray-300 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-green-400 w-full text-center text-xl font-semibold"
                     placeholder="0.00"
                   />
@@ -892,11 +1148,11 @@ const AdminTableManagePage = () => {
                 {paidAmount > 0 && (
                   <div className="text-center">
                     <div className="text-lg font-bold text-blue-700 mb-2">
-                      Qaytarılacaq məbləğ: {(paidAmount - modalOrder.total).toFixed(2)}₼
+                      Qaytarılacaq məbləğ: {(paidAmount - calculateFinalTotalWithProductDiscounts(modalOrder.hourTotal, modalOrder.selectedMenu, productDiscounts)).toFixed(2)}₼
                     </div>
-                    {paidAmount < modalOrder.total && (
+                    {paidAmount < calculateFinalTotalWithProductDiscounts(modalOrder.hourTotal, modalOrder.selectedMenu, productDiscounts) && (
                       <div className="text-sm text-red-600">
-                        Əlavə ödəniş tələb olunur: {(modalOrder.total - paidAmount).toFixed(2)}₼
+                        Əlavə ödəniş tələb olunur: {(calculateFinalTotalWithProductDiscounts(modalOrder.hourTotal, modalOrder.selectedMenu, productDiscounts) - paidAmount).toFixed(2)}₼
                       </div>
                     )}
                   </div>
@@ -904,14 +1160,14 @@ const AdminTableManagePage = () => {
                 
                 <div className="flex gap-3">
                   <button
-                    onClick={() => { setModalOrder(null); setPaidAmount(0); }}
+                    onClick={() => { setModalOrder(null); setPaidAmount(0); setProductDiscounts({}); }}
                     className="flex-1 px-4 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-semibold transition"
                   >
                     Ləğv et
                   </button>
                   <button
                     onClick={handleCompletePayment}
-                    disabled={paidAmount < modalOrder.total}
+                    disabled={paidAmount < calculateFinalTotalWithProductDiscounts(modalOrder.hourTotal, modalOrder.selectedMenu, productDiscounts)}
                     className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Ödənişi Tamamla

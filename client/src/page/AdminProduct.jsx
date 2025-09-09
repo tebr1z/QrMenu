@@ -42,7 +42,13 @@ const SortableProductItem = ({ product, handleModalToggle }) => {
     };
 
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+        <div ref={setNodeRef} style={style}>
+            {/* Drag handle - only this area should be draggable */}
+            <div {...attributes} {...listeners} className="cursor-move p-2 mb-2 bg-gray-100 rounded text-center text-gray-500 hover:bg-gray-200">
+                <i className="bi bi-grip-vertical text-lg"></i>
+                <span className="ml-2 text-sm">Sürüklə</span>
+            </div>
+            
             <AdminProductList
                 handleModalToggle={handleModalToggle}
                 product={product}
@@ -56,7 +62,11 @@ const AdminProduct = () => {
     const { hasJwtToken } = useContext(ContextUser)
     
     const sensors = useSensors(
-        useSensor(PointerSensor),
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8, // Only start dragging after 8px movement
+            },
+        }),
         useSensor(KeyboardSensor, {
             coordinateGetter: sortableKeyboardCoordinates,
         })
@@ -88,13 +98,20 @@ const AdminProduct = () => {
     
     // Handle modal toggle
     const handleModalToggle = (product = null) => {
+        console.log('handleModalToggle called with:', product);
         if (!hasJwtToken) {
             toast.error('Səssiyanız bitib. Yenidən daxil olun.')
             return
         }
         
-        setSelectedProduct(product)
-        setIsModalOpen(true)
+        if (product) {
+            // Editing existing product
+            setSelectedProduct(product);
+        } else {
+            // Adding new product
+            setSelectedProduct(null);
+        }
+        setIsModalOpen(true);
     }
     
     const handleModalClose = () => {
@@ -106,38 +123,55 @@ const AdminProduct = () => {
     const handleDragEnd = async (event) => {
         const { active, over } = event;
         
-        console.log('Product drag end event:', { active, over });
+        // Only process if we have both active and over elements
+        if (!active || !over) {
+            console.log('Product drag end: missing active or over element');
+            return;
+        }
+        
+        console.log('Product drag end event:', { active: active.id, over: over.id });
 
+        // Only process if the position actually changed
         if (active.id !== over.id) {
             const oldIndex = filteredProducts.findIndex(prod => prod._id === active.id);
             const newIndex = filteredProducts.findIndex(prod => prod._id === over.id);
             
-            console.log('Moving product from index', oldIndex, 'to index', newIndex);
+            if (oldIndex !== -1 && newIndex !== -1) {
+                console.log('Moving product from index', oldIndex, 'to index', newIndex);
 
-            const newProducts = arrayMove(filteredProducts, oldIndex, newIndex);
-            console.log('New products order:', newProducts);
-            
-            // If we have a category filter, use that category ID
-            let categoryId = null;
-            
-            if (selectedCategory) {
-                // Use the selected category ID
-                categoryId = selectedCategory;
+                const newProducts = arrayMove(filteredProducts, oldIndex, newIndex);
+                console.log('New products order:', newProducts);
+                
+                // If we have a category filter, use that category ID
+                let categoryId = null;
+                
+                if (selectedCategory) {
+                    // Use the selected category ID
+                    categoryId = selectedCategory;
+                } else {
+                    // Get the category ID from the first product (assuming all products are from same category when filtered)
+                    categoryId = newProducts[0]?.category?._id || newProducts[0]?.category;
+                }
+                
+                if (categoryId) {
+                    console.log('Updating order for category:', categoryId);
+                    // Update order in backend
+                    try {
+                        await updateProductOrderFunc(newProducts, categoryId);
+                        console.log('Product order updated successfully');
+                    } catch (error) {
+                        console.error('Error updating product order:', error);
+                        toast.error('Məhsulların sırası yenilənərkən xəta baş verdi');
+                    }
+                } else {
+                    console.log('No category ID found for products');
+                    toast.error('Kateqoriya ID tapılmadı');
+                }
             } else {
-                // Get the category ID from the first product (assuming all products are from same category when filtered)
-                categoryId = newProducts[0]?.category?._id || newProducts[0]?.category;
-            }
-            
-            if (categoryId) {
-                console.log('Updating order for category:', categoryId);
-                // Update order in backend
-                await updateProductOrderFunc(newProducts, categoryId);
-            } else {
-                console.log('No category ID found for products');
-                toast.error('Kateqoriya ID tapılmadı');
+                console.log('Invalid indices found:', { oldIndex, newIndex });
             }
         } else {
-            console.log('No change in product position');
+            console.log('No change in product position - same element');
         }
     };
     

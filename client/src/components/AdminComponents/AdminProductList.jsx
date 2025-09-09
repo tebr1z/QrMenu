@@ -82,10 +82,6 @@ const AdminProductList = ({ product, handleModalToggle }) => {
             key={product._id}
             className="flex flex-col bg-white shadow-lg rounded-xl p-6 hover:shadow-xl transition-all duration-300 border border-gray-100 relative group"
         >
-            {/* Drag Handle */}
-            <div className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 cursor-move p-1 rounded hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100">
-                <i className="bi bi-grip-vertical text-lg"></i>
-            </div>
             {/* Image */}
             <div className="w-full h-48 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex items-center justify-center">
                 {product.image && 
