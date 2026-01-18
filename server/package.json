@@ -24,6 +24,7 @@
     "mongoose": "^8.8.2",
     "nodemailer": "^6.9.16",
     "nodemon": "^3.1.7",
-    "react-beautiful-dnd": "^13.1.1"
+    "react-beautiful-dnd": "^13.1.1",
+    "socket.io": "^4.8.1"
   }
 }

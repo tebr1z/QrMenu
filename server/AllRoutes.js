@@ -6,6 +6,8 @@ import Contact from "./routes/Contact.js"
 import TableRoutes from "./routes/Table.js";
 import OrderRoutes from './routes/Order.js';
 import TableSessionRoutes from './routes/TableSession.js';
+import FeedbackRoutes from './routes/Feedback.js';
+import StockRoutes from './routes/Stock.js';
 const router = express.Router();
 
 router.use('/Auth', Auth)
@@ -15,4 +17,6 @@ router.use("/Contact", Contact)
 router.use('/table', TableRoutes);
 router.use('/order', OrderRoutes);
 router.use('/tablesession', TableSessionRoutes);
+router.use('/feedback', FeedbackRoutes);
+router.use('/stock', StockRoutes);
 export default router;

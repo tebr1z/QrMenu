@@ -9,30 +9,42 @@ const router = express.Router();
 
 router.get("/GetProduct", async (req, res) => {
     try {
-        const products = await Product.find({}).populate("category")
+        // Optimized: only select needed fields and populate category name
+        const products = await Product.find({})
+            .populate("category", "name image")
+            .select("name price category description image imageId freeMinutes freeMinutesForPS order stockQuantity purchasePrice unitCost isSet setItems createdAt")
+            .lean(); // Use lean() for better performance (returns plain JS objects)
         res.status(200).json(products)
     } catch (error) {
-        console.log(error)
+        if (process.env.NODE_ENV === 'development') {
+            console.log(error)
+        }
+        res.status(500).json({ error: 'Məhsullar alınarkən xəta baş verdi' });
     }
 })
 
 router.get("/GetProduct/:name", async (req, res) => {
     const { name } = req.params;
     try {
-        const categoryId = await Category.findOne({ name })
+        const categoryId = await Category.findOne({ name }).select("_id").lean();
         if (!categoryId) {
             return res.status(404).json({ message: "Category not found" });
         }
 
+        // Optimized: use lean() and select only needed fields
         const products = await Product.find({ category: categoryId._id })
-            .populate("category")
-            .sort({ order: 1, createdAt: -1 });
+            .populate("category", "name image")
+            .select("name price category description image imageId freeMinutes freeMinutesForPS order stockQuantity purchasePrice unitCost isSet setItems createdAt")
+            .sort({ order: 1, createdAt: -1 })
+            .lean();
 
         res.status(200).json(products)
 
     } catch (error) {
-        console.log(error)
-        res.status(404).json({ message: "Product not found" });
+        if (process.env.NODE_ENV === 'development') {
+            console.log(error)
+        }
+        res.status(500).json({ message: "Məhsullar alınarkən xəta baş verdi" });
     }
 });
 
@@ -44,7 +56,7 @@ router.post("/AddProduct", async (req, res) => {
     console.log('Request files:', req.files);
     console.log('Files keys:', req.files ? Object.keys(req.files) : 'No files');
     
-    const { name, price, category, description, freeMinutes } = req.body;
+    const { name, price, category, description, freeMinutes, freeMinutesForPS, stockQuantity, purchasePrice, isSet, setItems } = req.body;
     let imageProduct = req.files && req.files.imageProduct;
     let imageId = null;
     
@@ -110,6 +122,21 @@ router.post("/AddProduct", async (req, res) => {
         console.log('- imageId:', imageId);
         console.log('- freeMinutes:', Number(freeMinutes) || 0);
         
+        // Calculate unit cost
+        const stockQty = Number(stockQuantity) || 0;
+        const purchasePrc = Number(purchasePrice) || 0;
+        const unitCost = stockQty > 0 && purchasePrc > 0 ? purchasePrc / stockQty : 0;
+
+        // Parse setItems if provided
+        let parsedSetItems = [];
+        if (isSet && setItems) {
+            try {
+                parsedSetItems = typeof setItems === 'string' ? JSON.parse(setItems) : setItems;
+            } catch (e) {
+                console.error('Error parsing setItems:', e);
+            }
+        }
+
         const newProduct = new Product({
             name,
             price: parseFloat(price),
@@ -118,6 +145,12 @@ router.post("/AddProduct", async (req, res) => {
             image: imageProduct ? imageProduct : undefined,
             imageId,
             freeMinutes: Number(freeMinutes) || 0,
+            freeMinutesForPS: freeMinutesForPS || null,
+            stockQuantity: stockQty,
+            purchasePrice: purchasePrc,
+            unitCost: unitCost,
+            isSet: isSet === 'true' || isSet === true,
+            setItems: parsedSetItems,
         })
 
         await newProduct.save()
@@ -147,7 +180,7 @@ router.put("/UpdateProduct/:id", async (req, res) => {
     console.log('Request files:', req.files);
     console.log('Files keys:', req.files ? Object.keys(req.files) : 'No files');
     
-    const { name, price, category, description, freeMinutes } = req.body;
+    const { name, price, category, description, freeMinutes, freeMinutesForPS, stockQuantity, purchasePrice, isSet, setItems } = req.body;
     const imageProduct = req.files && req.files.imageProduct;
     let updateProduct = {};
     
@@ -158,6 +191,7 @@ router.put("/UpdateProduct/:id", async (req, res) => {
     console.log('- category:', category);
     console.log('- description:', description);
     console.log('- freeMinutes:', freeMinutes);
+    console.log('- freeMinutesForPS:', freeMinutesForPS);
     console.log('- imageProduct:', imageProduct);
 
     if (!name || !price || !category) {
@@ -168,6 +202,27 @@ router.put("/UpdateProduct/:id", async (req, res) => {
         updateProduct.category = category;
         updateProduct.description = description || '';
         updateProduct.freeMinutes = Number(freeMinutes) || 0;
+        updateProduct.freeMinutesForPS = freeMinutesForPS || null;
+        
+        // Calculate unit cost
+        const stockQty = Number(stockQuantity) || 0;
+        const purchasePrc = Number(purchasePrice) || 0;
+        updateProduct.stockQuantity = stockQty;
+        updateProduct.purchasePrice = purchasePrc;
+        updateProduct.unitCost = stockQty > 0 && purchasePrc > 0 ? purchasePrc / stockQty : 0;
+        
+        // Parse setItems if provided
+        if (isSet !== undefined) {
+            updateProduct.isSet = isSet === 'true' || isSet === true;
+            if (setItems) {
+                try {
+                    updateProduct.setItems = typeof setItems === 'string' ? JSON.parse(setItems) : setItems;
+                } catch (e) {
+                    console.error('Error parsing setItems:', e);
+                    updateProduct.setItems = [];
+                }
+            }
+        }
     }
 
     if (imageProduct) {
@@ -323,9 +378,6 @@ router.put("/UpdateProductOrder", async (req, res) => {
     try {
         const { products, categoryId } = req.body;
         
-        console.log('Received products for order update:', products);
-        console.log('Category ID:', categoryId);
-        
         if (!products || !Array.isArray(products)) {
             return res.status(400).json({ error: "Məhsul siyahısı tələb olunur" });
         }
@@ -334,21 +386,21 @@ router.put("/UpdateProductOrder", async (req, res) => {
             return res.status(400).json({ error: "Kateqoriya ID tələb olunur" });
         }
 
-        // Update each product's order within the category
-        for (let i = 0; i < products.length; i++) {
-            const product = products[i];
-            console.log(`Updating product ${product._id} with order ${i}`);
-            await Product.findByIdAndUpdate(
-                product._id,
-                { order: i },
-                { new: true }
-            );
-        }
+        // Optimized: Use bulk operations instead of individual updates
+        const bulkOps = products.map((product, i) => ({
+            updateOne: {
+                filter: { _id: product._id },
+                update: { $set: { order: i } }
+            }
+        }));
 
-        console.log('Product order updated successfully');
+        await Product.bulkWrite(bulkOps);
+
         res.status(200).json({ message: "Məhsul sırası yeniləndi" });
     } catch (error) {
-        console.log('Update product order error:', error);
+        if (process.env.NODE_ENV === 'development') {
+            console.log('Update product order error:', error);
+        }
         res.status(500).json({ error: "Məhsul sırası yenilənərkən xəta baş verdi" });
     }
 });

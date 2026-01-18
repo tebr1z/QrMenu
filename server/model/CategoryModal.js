@@ -23,4 +23,8 @@ const categorySchema = mongoose.Schema({
 },
 )
 
+// Performance indexes
+categorySchema.index({ order: 1, createdAt: -1 }); // For GetCategory sorting
+categorySchema.index({ name: 1 }); // For finding by name
+
 export default mongoose.model('Category', categorySchema);

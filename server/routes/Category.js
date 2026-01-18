@@ -7,11 +7,17 @@ const router = express.Router();
 
 router.get("/GetCategory", async (req, res) => {
     try {
+        // Optimized: use lean() for better performance
         const categories = await Category.find({})
-        .sort({ order: 1, createdAt: -1 });
+            .select("name image imageId order createdAt")
+            .sort({ order: 1, createdAt: -1 })
+            .lean();
         res.status(200).json(categories);
     } catch (error) {
-        console.log(error)
+        if (process.env.NODE_ENV === 'development') {
+            console.log(error)
+        }
+        res.status(500).json({ error: 'Kateqoriyalar alınarkən xəta baş verdi' });
     }
 })
 
@@ -20,27 +26,25 @@ router.put("/UpdateCategoryOrder", async (req, res) => {
     try {
         const { categories } = req.body;
         
-        console.log('Received categories for order update:', categories);
-        
         if (!categories || !Array.isArray(categories)) {
             return res.status(400).json({ error: "Kateqoriya siyahısı tələb olunur" });
         }
 
-        // Update each category's order
-        for (let i = 0; i < categories.length; i++) {
-            const category = categories[i];
-            console.log(`Updating category ${category._id} with order ${i}`);
-            await Category.findByIdAndUpdate(
-                category._id,
-                { order: i },
-                { new: true }
-            );
-        }
+        // Optimized: Use bulk operations instead of individual updates
+        const bulkOps = categories.map((category, i) => ({
+            updateOne: {
+                filter: { _id: category._id },
+                update: { $set: { order: i } }
+            }
+        }));
 
-        console.log('Category order updated successfully');
+        await Category.bulkWrite(bulkOps);
+
         res.status(200).json({ message: "Kateqoriya sırası yeniləndi" });
     } catch (error) {
-        console.log('Update category order error:', error);
+        if (process.env.NODE_ENV === 'development') {
+            console.log('Update category order error:', error);
+        }
         res.status(500).json({ error: "Kateqoriya sırası yenilənərkən xəta baş verdi" });
     }
 });

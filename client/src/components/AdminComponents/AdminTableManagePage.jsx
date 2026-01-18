@@ -1,10 +1,19 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import axios from 'axios';
+import { io as ioClient } from 'socket.io-client';
 import { ContextUser } from '../../context/CheckUserContext';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API || '/api',
 });
+
+const getSocketUrl = () => {
+  const apiBase = import.meta.env.VITE_API;
+  if (apiBase) {
+    return apiBase.replace(/\/api\/?$/, '');
+  }
+  return window.location.origin;
+};
 
 const AdminTableManagePage = () => {
   const { apiClient } = useContext(ContextUser);
@@ -407,6 +416,39 @@ const AdminTableManagePage = () => {
       }
     };
     fetchAll();
+  }, []);
+
+  useEffect(() => {
+    const socket = ioClient(getSocketUrl(), {
+      transports: ['websocket'],
+      withCredentials: true,
+    });
+
+    const upsertSession = (session) => {
+      if (!session || !session._id) return;
+      setSessions(prev => {
+        const index = prev.findIndex(item => item._id === session._id);
+        if (index === -1) {
+          return [...prev, session];
+        }
+        const next = [...prev];
+        next[index] = { ...prev[index], ...session };
+        return next;
+      });
+    };
+
+    const removeSession = (session) => {
+      if (!session || !session._id) return;
+      setSessions(prev => prev.filter(item => item._id !== session._id));
+    };
+
+    socket.on('tablesession:started', upsertSession);
+    socket.on('tablesession:updated', upsertSession);
+    socket.on('tablesession:ended', removeSession);
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   // Timer effect for active sessions - optimized to prevent unnecessary re-renders
