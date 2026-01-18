@@ -25,6 +25,9 @@ const AdminTableManagePage = () => {
   const timerRefs = useRef({});
   const audioRef = useRef(null);
   const audioTimeoutRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const audioSourceRef = useRef(null);
+  const audioGainRef = useRef(null);
   const notifiedSessions = useRef(new Set()); // Track which sessions have been notified
   const isProcessingPayment = useRef(false); // Track if payment is being processed
   const isFinishingSession = useRef(false); // Track if session is being finished
@@ -39,6 +42,28 @@ const AdminTableManagePage = () => {
       if (!audioRef.current) {
         audioRef.current = new Audio('/bildirim.mp3');
       }
+
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+
+      const audioContext = audioContextRef.current;
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().catch(() => {});
+      }
+
+      if (!audioSourceRef.current) {
+        audioSourceRef.current = audioContext.createMediaElementSource(audioRef.current);
+      }
+
+      if (!audioGainRef.current) {
+        audioGainRef.current = audioContext.createGain();
+        audioSourceRef.current.connect(audioGainRef.current);
+        audioGainRef.current.connect(audioContext.destination);
+      }
+
+      // Extra amplification (1.0 is normal)
+      audioGainRef.current.gain.setValueAtTime(3.0, audioContext.currentTime);
 
       if (audioTimeoutRef.current) {
         clearTimeout(audioTimeoutRef.current);

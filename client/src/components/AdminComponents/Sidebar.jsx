@@ -121,6 +121,10 @@ const Sidebar = ({ isOpen, onClose }) => {
                         <i className="bi bi-receipt"></i>
                         <span className="text-[15px] ml-4 text-gray-200 font-bold">Hesabların idarəsi</span>
                     </NavLink>
+                    <NavLink to="/Admin/SoldProducts" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                        <i className="bi bi-bar-chart-line"></i>
+                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Satılan məhsullar</span>
+                    </NavLink>
                     <NavLink to="/Admin/Feedback" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-chat-dots"></i>
                         <span className="text-[15px] ml-4 text-gray-200 font-bold">Geri Bildirimlər</span>

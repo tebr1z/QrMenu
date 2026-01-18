@@ -24,6 +24,7 @@ import AdminTableManagePage from './components/AdminComponents/AdminTableManageP
 import AdminAccountsPage from './components/AdminComponents/AdminAccountsPage'
 import AdminFeedback from './page/AdminFeedback'
 import AdminStockControl from './page/AdminStockControl'
+import AdminSoldProductsPage from './components/AdminComponents/AdminSoldProductsPage'
 
 const App = () => {
   const { pathname } = useLocation()
@@ -53,6 +54,7 @@ const App = () => {
           <Route path="Tables" element={<AdminTablePage />} />
           <Route path="TableManage" element={<AdminTableManagePage />} />
           <Route path="Accounts" element={<AdminAccountsPage />} />
+          <Route path="SoldProducts" element={<AdminSoldProductsPage />} />
           <Route path="Feedback" element={<AdminFeedback />} />
           <Route path="StockControl" element={<AdminStockControl />} />
         </Route>
