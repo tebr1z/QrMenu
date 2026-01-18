@@ -2,14 +2,9 @@ import React, { useState, useContext } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { ContextUser } from '../../context/CheckUserContext';
 import { toast } from 'react-toastify';
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose }) => {
     const { apiClient, sethasJwtToken } = useContext(ContextUser)
     const navigate = useNavigate()
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-    const toggleSidebar = () => {
-        setIsSidebarOpen(!isSidebarOpen);
-    };
 
     // logout start
     const logout = async () => {
@@ -37,9 +32,29 @@ const Sidebar = () => {
 
 
     return (
-        <div className='fixed left-0 top-0 h-screen w-64 bg-[#2C2C2C] z-40 shadow-lg'>
-            <div className="h-full pt-[40px] pb-20">
-                <div className="sidebar p-2 w-full overflow-y-auto text-center h-full">
+        <>
+            {/* Mobile Overlay */}
+            {isOpen && (
+                <div 
+                    className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+                    onClick={onClose}
+                ></div>
+            )}
+            
+            {/* Sidebar */}
+            <div className={`fixed left-0 top-0 h-screen w-64 bg-[#2C2C2C] z-50 shadow-lg transition-transform duration-300 ease-in-out ${
+                isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+            }`}>
+                {/* Mobile Close Button */}
+                <button
+                    onClick={onClose}
+                    className="md:hidden absolute top-4 right-4 text-white hover:text-orange-500 text-2xl z-10"
+                >
+                    <i className="bi bi-x-lg"></i>
+                </button>
+                
+                <div className="h-full pt-[40px] pb-20">
+                    <div className="sidebar p-2 w-full overflow-y-auto text-center h-full">
                     <div className="text-gray-100 text-xl">
                         <div className="p-2.5 mt-1 flex items-center">
                             <i className="bi bi-app-indicator px-2 py-1 rounded-md bg-orange-600"></i>
@@ -66,6 +81,7 @@ const Sidebar = () => {
                         <div className="mt-2 pl-6 border-l-4 border-orange-600">
                             <NavLink
                                 to="/Admin/Contact"
+                                onClick={onClose}
                                 className={({ isActive }) => `p-2.5 mt-2 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-500 text-gray-100 ${isActive ? 'bg-orange-600 font-bold' : ''}`}
                             >
                                 <i className="bi bi-info-circle"></i>
@@ -81,29 +97,37 @@ const Sidebar = () => {
                         </div>
                     }
 
-                    <NavLink to="/Admin/Menu" className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Menu" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-bookmark-fill"></i>
                         <span className="text-[15px] ml-4 text-gray-200 font-bold">Menu</span>
                     </NavLink>
-                    <NavLink to="/Admin/Category" className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Category" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-house-door-fill"></i>
                         <span className="text-[15px] ml-4 text-gray-200 font-bold">Kateqoriya</span>
                     </NavLink>
-                    <NavLink to="/Admin/Product" className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Product" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-bookmark-fill"></i>
                         <span className="text-[15px] ml-4 text-gray-200 font-bold">Məhsul</span>
                     </NavLink>
-                    <NavLink to="/Admin/Tables" className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Tables" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-table"></i>
                         <span className="text-[15px] ml-4 text-gray-200 font-bold">Masa əlavə et</span>
                     </NavLink>
-                    <NavLink to="/Admin/TableManage" className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/TableManage" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-gear"></i>
                         <span className="text-[15px] ml-4 text-gray-200 font-bold">Masaların idarəsi</span>
                     </NavLink>
-                    <NavLink to="/Admin/Accounts" className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Accounts" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-receipt"></i>
                         <span className="text-[15px] ml-4 text-gray-200 font-bold">Hesabların idarəsi</span>
+                    </NavLink>
+                    <NavLink to="/Admin/Feedback" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                        <i className="bi bi-chat-dots"></i>
+                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Geri Bildirimlər</span>
+                    </NavLink>
+                    <NavLink to="/Admin/StockControl" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                        <i className="bi bi-box-seam"></i>
+                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Stok Kontrol</span>
                     </NavLink>
                     <button
                         onClick={logout}
@@ -135,10 +159,10 @@ const Sidebar = () => {
                         <i className="bi bi-box-arrow-in-right"></i>
                         <span className="text-[15px] ml-4 text-gray-200 font-bold">Logout</span>
                     </div> */}
+                    </div>
                 </div>
             </div>
-        </div>
-
+        </>
     );
 };
 

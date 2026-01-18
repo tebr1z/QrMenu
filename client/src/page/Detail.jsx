@@ -13,7 +13,7 @@ const Detail = () => {
             try {
                 await getProductByCategoryFunc(name);
             } catch (error) {
-                console.log('Error loading product data:', error);
+                // Error loading product data - handled silently
             }
         };
         
@@ -47,24 +47,99 @@ const Detail = () => {
     const handleChangeFilterInput = (e) => {
         setfilterInput(e.target.value)
     }
+    // Smart normalization - handles Azerbaijani characters
     function normalizeString(str) {
         return str
+            .toLowerCase()
             .replace(/ə/g, 'e')
             .replace(/ı/g, 'i')
             .replace(/ö/g, 'o')
             .replace(/ü/g, 'u')
             .replace(/ğ/g, 'g')
             .replace(/ç/g, 'c')
-            .replace(/ş/g, 's');
+            .replace(/ş/g, 's')
+            .replace(/[^a-z0-9]/g, '') // Remove special characters
+            .trim();
     }
 
-    const FilterFunc = () => {
-        const filterResponse = getProductByCategory.filter((pro) =>
-            normalizeString(pro.name.toLowerCase()).includes(normalizeString(filterInput.toLowerCase()))
-        )
-        setfilterProduct(filterResponse)
-        console.log(filterResponse)
+    // Smart fuzzy matching - lightweight and fast
+    function fuzzyMatch(searchTerm, productName) {
+        const normalizedSearch = normalizeString(searchTerm);
+        const normalizedProduct = normalizeString(productName);
+        
+        // Exact match after normalization
+        if (normalizedProduct.includes(normalizedSearch)) {
+            return true;
+        }
+        
+        // If search is too short, only exact match
+        if (normalizedSearch.length < 2) {
+            return false;
+        }
+        
+        // Character-based fuzzy matching (lightweight)
+        let searchIndex = 0;
+        let productIndex = 0;
+        let matchCount = 0;
+        
+        // Check if characters appear in order (allowing some gaps)
+        while (productIndex < normalizedProduct.length && searchIndex < normalizedSearch.length) {
+            if (normalizedProduct[productIndex] === normalizedSearch[searchIndex]) {
+                matchCount++;
+                searchIndex++;
+            }
+            productIndex++;
+        }
+        
+        // If most characters match (at least 70% of search term)
+        const matchRatio = matchCount / normalizedSearch.length;
+        if (matchRatio >= 0.7) {
+            return true;
+        }
+        
+        // Check for common character substitutions (lightweight - only first 3 chars)
+        // This handles: cola → kola, q → k, etc.
+        const substitutions = {
+            'k': ['q', 'c'], // kola matches "cola" or "qola"
+            'q': ['k'],      // qola matches "kola"
+            'c': ['k'],      // cola matches "kola" (but not ç)
+            'g': ['ğ'],
+            's': ['ş'],
+            'o': ['ö'],
+            'u': ['ü'],
+            'i': ['ı', 'e'],
+            'e': ['ə', 'i']
+        };
+        
+        // Try with character substitutions (only first 3 chars to keep it fast)
+        const maxSubstitutions = Math.min(3, normalizedSearch.length);
+        for (let i = 0; i < maxSubstitutions; i++) {
+            const char = normalizedSearch[i];
+            const alternatives = substitutions[char] || [];
+            
+            for (const alt of alternatives) {
+                const modifiedSearch = normalizedSearch.substring(0, i) + alt + normalizedSearch.substring(i + 1);
+                if (normalizedProduct.includes(modifiedSearch)) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
     }
+
+    // Real-time filter with smart fuzzy matching (client-side only, no server load)
+    useEffect(() => {
+        if (filterInput.trim() === '') {
+            setfilterProduct([])
+        } else {
+            // All processing happens on client-side - no server requests
+            const filterResponse = getProductByCategory.filter((pro) => 
+                fuzzyMatch(filterInput.trim(), pro.name)
+            );
+            setfilterProduct(filterResponse)
+        }
+    }, [filterInput, getProductByCategory])
 
     if (getProductByCategoryLoading) {
         return <Loading />
@@ -77,10 +152,10 @@ const Detail = () => {
                     </p>
                     <div className="max-w-md mx-auto pt-[10px]">
                         <label
-                            htmlFor="default-search"
+                            htmlFor="product-search"
                             className="mb-2 text-sm font-medium text-gray-900 sr-only dark:text-white"
                         >
-                            Search
+                            Məhsul axtarışı
                         </label>
                         <div className="relative">
                             <div className="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
@@ -104,38 +179,42 @@ const Detail = () => {
                                 value={filterInput}
                                 onChange={handleChangeFilterInput}
                                 type="search"
-                                id="default-search"
+                                id="product-search"
                                 className="block w-full p-4 ps-10 text-sm text-black border border-none rounded-lg bg-gray-200 placeholder-gray-500 focus:ring-gray-500 focus:border-gray-500"
                                 placeholder="Bu kateqoriyadakı məhsulları axtarın..."
+                                aria-label="Məhsul axtarışı"
+                                autoComplete="off"
                             />
-                            <button
-                                onClick={FilterFunc}
-                                className="text-white absolute end-2.5 bottom-2 bg-gray-800 hover:bg-gray-700   font-medium rounded-lg text-sm px-4 py-2"
-                            >
-                                Axtar
-                            </button>
                         </div>
                     </div>
 
                 </div>
 
                 {
-                    getProductByCategory.length > 0 ? <div className='container mx-auto'>
-                        <div className='grid grid-cols-3 gap-4 max-[991px]:grid-cols-2 max-[768px]:grid-cols-1 pt-[30px] '>
-                            {
-
-                                filterProduct.length > 0 ? filterProduct.map((item, index) => (
-                                    <FoodDetail key={index} item={item} />
-                                )) :
-                                    getProductByCategory.map((item, index) => (
-                                        <FoodDetail key={index} item={item} />
-                                    ))
-                            }
+                    getProductByCategory.length > 0 ? (
+                        filterProduct.length > 0 || filterInput.trim() === '' ? (
+                            <div className='container mx-auto'>
+                                <div className='grid grid-cols-3 gap-4 max-[991px]:grid-cols-2 max-[768px]:grid-cols-1 pt-[30px] '>
+                                    {
+                                        filterProduct.length > 0 ? filterProduct.map((item) => (
+                                            <FoodDetail key={item._id || item.id || item.name} item={item} />
+                                        )) :
+                                            getProductByCategory.map((item) => (
+                                                <FoodDetail key={item._id || item.id || item.name} item={item} />
+                                            ))
+                                    }
+                                </div>
+                            </div>
+                        ) : (
+                            <div className='flex justify-center items-center h-[30vh]'>
+                                <p className="text-center text-xl text-gray-700 font-semibold">Axtarışa uyğun məhsul tapılmadı</p>
+                            </div>
+                        )
+                    ) : (
+                        <div className='flex justify-center items-center h-[30vh]'>
+                            <p className="text-center text-xl text-gray-700 font-semibold">Məhsul tapılmadı</p>
                         </div>
-                    </div> : <div className='flex justify-center items-center h-[30vh]'>
-                        <p className="text-center text-xl text-gray-700 font-semibold">Məhsul tapılmadı</p>
-                    </div>
-
+                    )
                 }
 
 

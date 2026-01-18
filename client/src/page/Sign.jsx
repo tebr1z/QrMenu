@@ -19,7 +19,10 @@ const Sign = () => {
         })
     }
 
-    const signFunc = async () => {
+    const signFunc = async (e) => {
+        if (e) {
+            e.preventDefault();
+        }
         try {
             const response = await apiClient.post(`/Auth/Login`, signInput)
             toast.success(response.data.message)
@@ -49,7 +52,7 @@ const Sign = () => {
             <div className=" pt-[60px] flex items-center justify-center bg-gray-100 pb-[100px]">
                 <div className="bg-white shadow-lg rounded-lg p-8 max-w-sm w-full">
                     <h2 className="text-2xl font-bold text-center text-gray-800">Daxil olun</h2>
-                    <div>
+                    <form onSubmit={signFunc}>
                         <div className="mb-4">
                             <label htmlFor="email" className="block text-gray-700 font-medium mb-2">Email</label>
                             <input
@@ -89,7 +92,7 @@ const Sign = () => {
                         >
                             Daxil olun
                         </button>
-                    </div>
+                    </form>
 
                 </div>
             </div>

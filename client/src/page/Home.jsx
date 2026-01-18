@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react'
+import React, { useContext, useState, useEffect } from 'react'
 import FoodCadr from '../components/FoodCadr'
 import { ContextAdmin } from '../context/AdminContext'
 import Loading from '../components/Loading'
@@ -24,23 +24,27 @@ const Home = () => {
             .replace(/ş/g, 's');
     }
 
-    const FilterFunc = () => {
-        const filterResponse = categories.filter((cat) =>
-            normalizeString(cat.name.toLowerCase()).includes(normalizeString(filterInput.toLowerCase()))
-        )
-        setfilterCategory(filterResponse)
-        console.log(filterResponse)
-    }
+    // Real-time filter - update on input change
+    useEffect(() => {
+        if (filterInput.trim() === '') {
+            setfilterCategory([])
+        } else {
+            const filterResponse = categories.filter((cat) =>
+                normalizeString(cat.name.toLowerCase()).includes(normalizeString(filterInput.toLowerCase()))
+            )
+            setfilterCategory(filterResponse)
+        }
+    }, [filterInput, categories])
 
-    // Show loading if categories are not loaded yet
-    if (categories.length === 0) {
+    // Show loading if categories or products are not loaded yet
+    if (categories.length === 0 || !products) {
         return <Loading />
     }
 
     return (
         <div className='pb-[100px]'>
             <div className='px-[20px]'>
-                <h1 className='pt-[30px]  text-[32px] text-black font-medium'>Menu</h1>
+                {/* heading removed as requested */}
                 <div className="max-w-md mx-auto pt-[10px]">
                     <label
                         htmlFor="default-search"
@@ -73,27 +77,23 @@ const Home = () => {
                             id="default-search"
                             className="block w-full p-4 ps-10 text-sm text-black border border-none rounded-lg bg-gray-200 placeholder-gray-500 focus:ring-gray-500 focus:border-gray-500"
                             placeholder="Kateqoriyaları axtarın..."
+                            aria-label="Kateqoriyaları axtarın"
+                            autoComplete="off"
                         />
-                        <button
-                            onClick={FilterFunc}
-                            className="text-white absolute end-2.5 bottom-2 bg-gray-800 hover:bg-gray-700   font-medium rounded-lg text-sm px-4 py-2"
-                        >
-                            Axtar
-                        </button>
                     </div>
                 </div>
 
             </div>
 
             <div className='container mx-auto'>
-                <div className='grid grid-cols-3 gap-4 max-[991px]:grid-cols-2 max-[768px]:grid-cols-1 pt-[30px] max-[768px]:px-[15px]'>
+                <div className='grid grid-cols-2 gap-x-4 gap-y-8 pt-[24px] px-[8px] md:px-[12px] max-[768px]:px-[6px]'>
                     {
                         filterCategory.length > 0 ?
-                            filterCategory.map((item, index) => (
-                                <FoodCadr key={index} item={item} />
+                            filterCategory.map((item) => (
+                                <FoodCadr key={item._id || item.id || item.name} item={item} />
                             )) :
-                            categories && categories.map((item, index) => (
-                                <FoodCadr key={index} item={item} />
+                            categories && categories.map((item) => (
+                                <FoodCadr key={item._id || item.id || item.name} item={item} />
                             ))
                     }
                 </div>

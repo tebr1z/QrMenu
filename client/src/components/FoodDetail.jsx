@@ -1,83 +1,37 @@
 import React from 'react'
 
 const FoodDetail = ({ item }) => {
-    // Function to clean HTML for display
-    const cleanHtmlForDisplay = (content) => {
-        if (!content) return '';
-        
-        // If content contains HTML tags, clean them but preserve basic formatting
-        if (content.includes('<') || content.includes('>')) {
-            // Create a temporary div to parse HTML
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = content;
-            
-            // Remove complex styles but keep basic formatting
-            const elements = tempDiv.querySelectorAll('*');
-            elements.forEach(element => {
-                if (element.style) {
-                    // Keep only basic styles
-                    const color = element.style.color;
-                    const fontWeight = element.style.fontWeight;
-                    const fontStyle = element.style.fontStyle;
-                    
-                    element.removeAttribute('style');
-                    
-                    if (color) element.style.color = color;
-                    if (fontWeight) element.style.fontWeight = fontWeight;
-                    if (fontStyle) element.style.fontStyle = fontStyle;
-                }
-            });
-            
-            return tempDiv.innerHTML;
-        }
-        
-        // If it's plain text, return as is
-        return content;
-    };
 
-    const formattedDescription = cleanHtmlForDisplay(item.description);
+    const hasValidImage = item.image && item.image.trim() !== '' && !item.image.includes('placeholder.png') && !item.image.startsWith('data:image/svg+xml') && !item.image.includes('iseu.bsu.by')
 
     return (
-        <div className="w-full flex justify-between items-center space-x-1 p-[15px] bg-gray-100 rounded-lg shadow-md hover:shadow-lg transition-shadow">
-            <div className="flex flex-col justify-between h-full  w-[100%]">
-                <div className="mb-2">
-                    <p className="text-lg font-semibold text-gray-800">{item.name}</p>
+        <div className="group w-full bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-[2px] hover:ring-1 hover:ring-[var(--color-primary)]/20 relative overflow-hidden">
+            <div className="absolute bottom-0 left-0 right-0 h-[6px] bg-blue-500"></div>
+            <div className="flex items-start gap-4 p-4">
+                <div className="w-[110px] h-[110px] md:w-[120px] md:h-[120px] rounded-lg bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {hasValidImage ? (
+                        <img
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            src={item.image}
+                            alt={item.name}
+                            onError={(e) => {
+                                e.target.style.display = 'none'
+                                e.target.parentElement.classList.add('bg-gray-200')
+                            }}
+                        />
+                    ) : (
+                        <i className="bi bi-image text-3xl text-gray-400"></i>
+                    )}
                 </div>
-                {formattedDescription && (
-                    <div className="mb-3">
-                        <div className="text-[14px] text-gray-600 leading-relaxed whitespace-pre-line" dangerouslySetInnerHTML={{ __html: formattedDescription }} />
+
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                        <p className="text-[15px] md:text-[16px] font-semibold text-gray-800 break-words text-left">{item.name}</p>
+                        <p className="text-[14px] md:text-[15px] font-bold text-black whitespace-nowrap">{item.price} AZN</p>
                     </div>
-                )}
-                <div className="mb-3">
-                    <p className="text-lg font-bold text-orange-600">{item.price}₼</p>
-                </div>
-            </div>
-            <div className="w-[150px] h-[85px] flex-shrink-0 flex items-center justify-center bg-gray-50 rounded-md">
-                {item.image && 
-                 item.image.trim() !== '' && 
-                 !item.image.includes('placeholder.png') && 
-                 !item.image.startsWith('data:image/svg+xml') &&
-                 !item.image.includes('iseu.bsu.by') ? (
-                    <img 
-                        style={{
-                            mixBlendMode: 'darken',
-                        }} 
-                        className="w-full h-full object-contain rounded-md" 
-                        src={item.image} 
-                        alt={item.name}
-                        onError={(e) => {
-                            console.log('Image load error for:', item.name, 'URL:', item.image);
-                            e.target.style.display = 'none';
-                            e.target.nextSibling.style.display = 'flex';
-                        }}
-                    />
-                ) : null}
-                <div className={`flex flex-col items-center justify-center text-gray-400 ${(item.image && 
-                 item.image.trim() !== '' && 
-                 !item.image.includes('placeholder.png') && 
-                 !item.image.startsWith('data:image/svg+xml') &&
-                 !item.image.includes('iseu.bsu.by')) ? 'hidden' : 'flex'}`}>
-                    <i className="bi bi-image text-xl"></i>
+                    {item.description && (
+                        <div className="text-left break-words text-[13px] md:text-[14px] mt-1 leading-relaxed text-gray-600" dangerouslySetInnerHTML={{ __html: item.description }} />
+                    )}
                 </div>
             </div>
         </div>

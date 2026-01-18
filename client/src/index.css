@@ -4,6 +4,15 @@
 @tailwind components;
 @tailwind utilities;
 
+:root{
+  /* Modern restaurant theme */
+  --color-primary: #2563eb; /* blue-600 */
+  --color-primary-700: #1d4ed8; /* blue-700 */
+  --color-surface: #ffffff;
+  --color-muted: #f3f4f6; /* gray-100/200 */
+  --color-text: #0f172a; /* slate-900 */
+}
+
 /* Line clamp utilities */
 .line-clamp-2 {
   display: -webkit-box;
@@ -39,8 +48,8 @@
 }
 
 .ql-editor:focus {
-  border-color: #f97316;
-  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
 
 /* Rich text content styling */
@@ -82,12 +91,12 @@
 }
 
 .rich-text-content a {
-  color: #f97316;
+  color: var(--color-primary);
   text-decoration: underline;
 }
 
 .rich-text-content a:hover {
-  color: #ea580c;
+  color: var(--color-primary-700);
 }
 
 /* Custom scrollbar */
@@ -116,7 +125,7 @@
 
 /* Custom focus styles */
 .focus-ring:focus {
-  outline: 2px solid #f97316;
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
@@ -125,5 +134,17 @@ body{
     font-weight: 400;
     font-style: normal;
     /* padding-bottom: 100px; */
+    color: var(--color-text);
+    background-color: var(--color-muted);
+}
+
+/* Floating subtle up-down animation for WhatsApp button */
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.float-y {
+  animation: floaty 2.2s ease-in-out infinite;
 }
 

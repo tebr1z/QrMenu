@@ -4,7 +4,7 @@ import { ContextUser } from '../../context/CheckUserContext'
 import { toast } from 'react-toastify'
 
 const ProductModal = ({ isOpen, onClose, product }) => {
-    const { addProductFunc, updateProductFunc, categories, productLoading } = useContext(ContextAdmin)
+    const { addProductFunc, updateProductFunc, categories, products, productLoading } = useContext(ContextAdmin)
     const { hasJwtToken } = useContext(ContextUser)
     
     const [formData, setFormData] = useState({
@@ -12,14 +12,21 @@ const ProductModal = ({ isOpen, onClose, product }) => {
         description: '',
         price: '',
         freeMinutes: '',
+        freeMinutesForPS: '',
         category: '',
-        image: null
+        image: null,
+        stockQuantity: '',
+        purchasePrice: '',
+        isSet: false,
+        setItems: []
     })
     
     const [imagePreview, setImagePreview] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [colorPickerOpen, setColorPickerOpen] = useState(false)
     const descriptionRef = useRef(null)
+    const [selectedProductForSet, setSelectedProductForSet] = useState('')
+    const [selectedQuantityForSet, setSelectedQuantityForSet] = useState(1)
     
     // Reset form when modal opens/closes or product changes
     useEffect(() => {
@@ -31,8 +38,13 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                     description: product.description || '',
                     price: product.price || '',
                     freeMinutes: product.freeMinutes || '',
+                    freeMinutesForPS: product.freeMinutesForPS || '',
                     category: product.category?._id || product.category || '',
-                    image: null
+                    image: null,
+                    stockQuantity: product.stockQuantity || '',
+                    purchasePrice: product.purchasePrice || '',
+                    isSet: product.isSet || false,
+                    setItems: product.setItems || []
                 })
                 setImagePreview(product.image || '')
                 
@@ -49,8 +61,13 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                     description: '',
                     price: '',
                     freeMinutes: '',
+                    freeMinutesForPS: '',
                     category: '',
-                    image: null
+                    image: null,
+                    stockQuantity: '',
+                    purchasePrice: '',
+                    isSet: false,
+                    setItems: []
                 })
                 setImagePreview('')
                 
@@ -194,7 +211,12 @@ const ProductModal = ({ isOpen, onClose, product }) => {
             submitData.append('description', cleanHtmlContent(formData.description))
             submitData.append('price', parseFloat(formData.price))
             submitData.append('freeMinutes', parseInt(formData.freeMinutes) || 0)
+            submitData.append('freeMinutesForPS', formData.freeMinutesForPS || '')
             submitData.append('category', formData.category)
+            submitData.append('stockQuantity', parseInt(formData.stockQuantity) || 0)
+            submitData.append('purchasePrice', parseFloat(formData.purchasePrice) || 0)
+            submitData.append('isSet', formData.isSet)
+            submitData.append('setItems', JSON.stringify(formData.setItems))
             
             if (formData.image) {
                 console.log('Adding image to FormData:', formData.image);
@@ -354,6 +376,176 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                                 disabled={isSubmitting}
                             />
                         </div>
+                    </div>
+                    
+                    {/* Free Minutes For PS */}
+                    {formData.freeMinutes > 0 && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Pulsuz vaxt hansı PS-ə aiddir?
+                            </label>
+                            <select
+                                name="freeMinutesForPS"
+                                value={formData.freeMinutesForPS}
+                                onChange={handleInputChange}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                disabled={isSubmitting}
+                            >
+                                <option value="">PS seçilməyib (hamısı üçün)</option>
+                                <option value="PS3">PS3</option>
+                                <option value="PS4">PS4</option>
+                                <option value="PS5">PS5</option>
+                            </select>
+                            <div className="text-xs text-gray-500 mt-1">
+                                Əgər fərqli PS-də oynayırlarsa, qiymət fərqi hesablanacaq
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Stock Information */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Stok Miqdarı (ədəd)
+                            </label>
+                            <input
+                                type="number"
+                                name="stockQuantity"
+                                value={formData.stockQuantity}
+                                onChange={handleInputChange}
+                                min="0"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                placeholder="Məs: 100"
+                                disabled={isSubmitting}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Alınma Qiyməti (₼)
+                            </label>
+                            <input
+                                type="number"
+                                name="purchasePrice"
+                                value={formData.purchasePrice}
+                                onChange={handleInputChange}
+                                step="0.01"
+                                min="0"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                placeholder="Məs: 200"
+                                disabled={isSubmitting}
+                            />
+                            {formData.stockQuantity && formData.purchasePrice && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                    1 ədədin qiyməti: {(parseFloat(formData.purchasePrice) / parseInt(formData.stockQuantity)).toFixed(2)}₼
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                    
+                    {/* Set Product */}
+                    <div>
+                        <label className="flex items-center gap-2 mb-2">
+                            <input
+                                type="checkbox"
+                                checked={formData.isSet}
+                                onChange={(e) => setFormData(prev => ({ ...prev, isSet: e.target.checked }))}
+                                className="w-4 h-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500"
+                                disabled={isSubmitting}
+                            />
+                            <span className="text-sm font-medium text-gray-700">Set məhsul</span>
+                        </label>
+                        
+                        {formData.isSet && (
+                            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Set-ə məhsul əlavə et
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <select
+                                            value={selectedProductForSet}
+                                            onChange={(e) => setSelectedProductForSet(e.target.value)}
+                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                            disabled={isSubmitting}
+                                        >
+                                            <option value="">Məhsul seçin</option>
+                                            {products.filter(p => p._id !== product?._id && !p.isSet).map(p => (
+                                                <option key={p._id} value={p._id}>
+                                                    {p.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            value={selectedQuantityForSet}
+                                            onChange={(e) => setSelectedQuantityForSet(parseInt(e.target.value) || 1)}
+                                            className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                            placeholder="Miqdar"
+                                            disabled={isSubmitting}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (selectedProductForSet) {
+                                                    const product = products.find(p => p._id === selectedProductForSet);
+                                                    if (product && !formData.setItems.find(item => item.productId === selectedProductForSet)) {
+                                                        setFormData(prev => ({
+                                                            ...prev,
+                                                            setItems: [...prev.setItems, {
+                                                                productId: selectedProductForSet,
+                                                                quantity: selectedQuantityForSet
+                                                            }]
+                                                        }));
+                                                        setSelectedProductForSet('');
+                                                        setSelectedQuantityForSet(1);
+                                                    } else {
+                                                        toast.warning('Bu məhsul artıq set-ə əlavə edilib');
+                                                    }
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+                                            disabled={isSubmitting || !selectedProductForSet}
+                                        >
+                                            Əlavə et
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                {formData.setItems.length > 0 && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Set məhsulları:
+                                        </label>
+                                        <div className="space-y-2">
+                                            {formData.setItems.map((item, index) => {
+                                                const product = products.find(p => p._id === item.productId);
+                                                return (
+                                                    <div key={index} className="flex items-center justify-between p-2 bg-white rounded border border-gray-200">
+                                                        <span className="text-sm text-gray-700">
+                                                            {product?.name || 'Məhsul tapılmadı'} - {item.quantity} ədəd
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setFormData(prev => ({
+                                                                    ...prev,
+                                                                    setItems: prev.setItems.filter((_, i) => i !== index)
+                                                                }));
+                                                            }}
+                                                            className="text-red-500 hover:text-red-700"
+                                                            disabled={isSubmitting}
+                                                        >
+                                                            <i className="bi bi-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                     
                     {/* Rich Text Description */}

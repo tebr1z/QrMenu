@@ -8,6 +8,7 @@ import { useLocation, Navigate } from 'react-router-dom'
 import Home from './page/Home'
 import Detail from './page/Detail'
 import Navbar from './components/Navbar'
+import FeedbackButton from './components/FeedbackButton'
 import Contact from './page/Contact'
 import WorkTime from './page/WorkTime'
 import Language from './page/Language'
@@ -21,6 +22,8 @@ import AdminContact from './page/AdminContact'
 import AdminTablePage from './components/AdminComponents/AdminTablePage'
 import AdminTableManagePage from './components/AdminComponents/AdminTableManagePage'
 import AdminAccountsPage from './components/AdminComponents/AdminAccountsPage'
+import AdminFeedback from './page/AdminFeedback'
+import AdminStockControl from './page/AdminStockControl'
 
 const App = () => {
   const { pathname } = useLocation()
@@ -50,8 +53,11 @@ const App = () => {
           <Route path="Tables" element={<AdminTablePage />} />
           <Route path="TableManage" element={<AdminTableManagePage />} />
           <Route path="Accounts" element={<AdminAccountsPage />} />
+          <Route path="Feedback" element={<AdminFeedback />} />
+          <Route path="StockControl" element={<AdminStockControl />} />
         </Route>
       </Routes>
+      <FeedbackButton />
     </>
   )
 }
