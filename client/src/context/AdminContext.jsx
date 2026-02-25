@@ -5,7 +5,7 @@ import axios from "axios";
 
 const AdminContext = ({ children }) => {
     // Create separate apiClient for AdminContext
-    const apiUrl = import.meta.env.VITE_API;
+    const apiUrl = import.meta.env.VITE_API || '/api';
     const apiClient = useMemo(() => {
         const client = axios.create({
             baseURL: apiUrl,

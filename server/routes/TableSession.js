@@ -24,10 +24,6 @@ router.post('/Start', async (req, res) => {
     try {
         const session = new TableSession(req.body);
         await session.save();
-        const io = req.app.get('io');
-        if (io) {
-            io.emit('tablesession:started', session);
-        }
         res.status(201).json({ message: 'Masa başlatıldı', session });
     } catch (error) {
         res.status(500).json({ error: 'Masa başlatılarkən xəta baş verdi' });
@@ -44,10 +40,6 @@ router.put('/:id/menu', async (req, res) => {
             { new: true }
         );
         if (!session) return res.status(404).json({ error: 'Session tapılmadı' });
-        const io = req.app.get('io');
-        if (io) {
-            io.emit('tablesession:updated', session);
-        }
         res.status(200).json({ message: 'Menyu yeniləndi', session });
     } catch (error) {
         res.status(500).json({ error: 'Menyu yenilənərkən xəta baş verdi' });
@@ -64,10 +56,6 @@ router.put('/:id/timer', async (req, res) => {
             { new: true }
         );
         if (!session) return res.status(404).json({ error: 'Session tapılmadı' });
-        const io = req.app.get('io');
-        if (io) {
-            io.emit('tablesession:updated', session);
-        }
         res.status(200).json({ message: 'Timer yeniləndi', session });
     } catch (error) {
         res.status(500).json({ error: 'Timer yenilənərkən xəta baş verdi' });
@@ -93,10 +81,6 @@ router.put('/:id/update', async (req, res) => {
             { new: true }
         );
         if (!session) return res.status(404).json({ error: 'Session tapılmadı' });
-        const io = req.app.get('io');
-        if (io) {
-            io.emit('tablesession:updated', session);
-        }
         res.status(200).json({ message: 'Session yeniləndi', session });
     } catch (error) {
         res.status(500).json({ error: 'Session yenilənərkən xəta baş verdi' });
@@ -134,10 +118,6 @@ router.put('/:id/changePS', async (req, res) => {
         session.hourlyPrice = hourlyPrice;
         
         await session.save();
-        const io = req.app.get('io');
-        if (io) {
-            io.emit('tablesession:updated', session);
-        }
         res.status(200).json({ message: 'PS növü dəyişdirildi', session });
     } catch (error) {
         res.status(500).json({ error: 'PS növü dəyişdirilərkən xəta baş verdi' });
@@ -149,10 +129,6 @@ router.delete('/:id', async (req, res) => {
     try {
         const session = await TableSession.findByIdAndDelete(req.params.id);
         if (!session) return res.status(404).json({ error: 'Session tapılmadı' });
-        const io = req.app.get('io');
-        if (io) {
-            io.emit('tablesession:ended', session);
-        }
         res.status(200).json({ message: 'Session bitirildi və silindi', session });
     } catch (error) {
         res.status(500).json({ error: 'Session silinərkən xəta baş verdi' });

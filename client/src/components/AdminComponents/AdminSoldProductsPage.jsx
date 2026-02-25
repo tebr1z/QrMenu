@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { MASTER_ADMIN_PASSWORD } from '../../config/auth';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API || '/api',
@@ -25,11 +26,9 @@ const AdminSoldProductsPage = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
-  const PASSWORD_CODE = '2684';
-
   const handleUnlockAmounts = (event) => {
     event.preventDefault();
-    if (passwordInput === PASSWORD_CODE) {
+    if (passwordInput === MASTER_ADMIN_PASSWORD) {
       setShowAmounts(true);
       setShowPasswordModal(false);
       setPasswordInput('');

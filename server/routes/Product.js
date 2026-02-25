@@ -335,12 +335,22 @@ router.get('/GetTables', async (req, res) => {
 });
 
 router.post('/AddTable', async (req, res) => {
-    const { name, hourlyPrice } = req.body;
+    const { name, hourlyPrice, extraItems } = req.body;
     if (!name || hourlyPrice === undefined) {
         return res.status(400).json({ error: "Masa adı və saatlıq qiymət tələb olunur" });
     }
     try {
-        const newTable = new Table({ name, hourlyPrice });
+        let parsedExtraItems = [];
+        if (Array.isArray(extraItems)) {
+            parsedExtraItems = extraItems;
+        } else if (typeof extraItems === 'string') {
+            try {
+                parsedExtraItems = JSON.parse(extraItems);
+            } catch (err) {
+                parsedExtraItems = [];
+            }
+        }
+        const newTable = new Table({ name, hourlyPrice, extraItems: parsedExtraItems });
         await newTable.save();
         res.status(201).json({ message: "Masa əlavə olundu", newTable });
     } catch (error) {
@@ -359,11 +369,21 @@ router.delete('/DeleteTable/:id', async (req, res) => {
 });
 
 router.put('/UpdateTable/:id', async (req, res) => {
-    const { name, hourlyPrice } = req.body;
+    const { name, hourlyPrice, extraItems } = req.body;
     try {
+        let parsedExtraItems;
+        if (Array.isArray(extraItems)) {
+            parsedExtraItems = extraItems;
+        } else if (typeof extraItems === 'string') {
+            try {
+                parsedExtraItems = JSON.parse(extraItems);
+            } catch (err) {
+                parsedExtraItems = undefined;
+            }
+        }
         const table = await Table.findByIdAndUpdate(
             req.params.id,
-            { name, hourlyPrice },
+            { name, hourlyPrice, ...(parsedExtraItems !== undefined ? { extraItems: parsedExtraItems } : {}) },
             { new: true }
         );
         if (!table) return res.status(404).json({ error: "Masa tapılmadı" });

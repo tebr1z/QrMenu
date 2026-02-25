@@ -1,10 +1,36 @@
-import React, { useState, useContext } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import React, { useState, useContext, useEffect } from 'react';
+import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { ContextUser } from '../../context/CheckUserContext';
 import { toast } from 'react-toastify';
-const Sidebar = ({ isOpen, onClose }) => {
-    const { apiClient, sethasJwtToken } = useContext(ContextUser)
+
+const SET_REQUESTS_LAST_SEEN_KEY = 'setRequestsLastSeenAt';
+
+const Sidebar = ({ isOpen, onClose, collapsed = false }) => {
+    const { apiClient, clearAuth } = useContext(ContextUser)
     const navigate = useNavigate()
+    const location = useLocation()
+    const [hasNewSetRequests, setHasNewSetRequests] = useState(false)
+
+    useEffect(() => {
+        if (location.pathname === '/Admin/SetRequests') {
+            localStorage.setItem(SET_REQUESTS_LAST_SEEN_KEY, new Date().toISOString())
+            setHasNewSetRequests(false)
+        } else {
+            const lastSeen = localStorage.getItem(SET_REQUESTS_LAST_SEEN_KEY)
+            apiClient.get('/setrequest?limit=1')
+                .then((res) => {
+                    const list = Array.isArray(res.data) ? res.data : []
+                    if (list.length === 0) {
+                        setHasNewSetRequests(false)
+                        return
+                    }
+                    const newest = new Date(list[0].createdAt).getTime()
+                    const seen = lastSeen ? new Date(lastSeen).getTime() : 0
+                    setHasNewSetRequests(newest > seen)
+                })
+                .catch(() => setHasNewSetRequests(false))
+        }
+    }, [location.pathname, apiClient])
 
     // logout start
     const logout = async () => {
@@ -17,10 +43,13 @@ const Sidebar = ({ isOpen, onClose }) => {
             toast.info('Yerli sessiya təmizləndi')
         } finally {
             // Always clear local authentication state
-            sethasJwtToken(false)
-            localStorage.removeItem('admin_session_data')
-            localStorage.removeItem('userName')
-            
+            if (clearAuth) {
+                clearAuth();
+            } else {
+                localStorage.removeItem('admin_session_data');
+                localStorage.removeItem('userName');
+            }
+
             // Force redirect to Sign page
             window.location.href = '/Sign'
         }
@@ -42,9 +71,9 @@ const Sidebar = ({ isOpen, onClose }) => {
             )}
             
             {/* Sidebar */}
-            <div className={`fixed left-0 top-0 h-screen w-64 bg-[#2C2C2C] z-50 shadow-lg transition-transform duration-300 ease-in-out ${
+            <div className={`fixed left-0 top-0 h-screen bg-[#2C2C2C] z-50 shadow-lg transition-transform duration-300 ease-in-out ${
                 isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-            }`}>
+            } ${collapsed ? 'md:w-20' : 'md:w-64'} w-64`}>
                 {/* Mobile Close Button */}
                 <button
                     onClick={onClose}
@@ -56,28 +85,32 @@ const Sidebar = ({ isOpen, onClose }) => {
                 <div className="h-full pt-[40px] pb-20">
                     <div className="sidebar p-2 w-full overflow-y-auto text-center h-full">
                     <div className="text-gray-100 text-xl">
-                        <div className="p-2.5 mt-1 flex items-center">
+                        <div className={`p-2.5 mt-1 flex items-center ${collapsed ? 'justify-center' : ''}`}>
                             <i className="bi bi-app-indicator px-2 py-1 rounded-md bg-orange-600"></i>
-                            <h1 className="font-bold text-gray-200 text-[15px] ml-3">Admin Panel</h1>
+                            {!collapsed && <h1 className="font-bold text-gray-200 text-[15px] ml-3">Admin Panel</h1>}
                         </div>
                         <div className="my-2 bg-gray-600 h-[1px]"></div>
                     </div>
-                    <div className="p-2.5 flex items-center rounded-md px-4 duration-300 cursor-pointer bg-gray-700 text-white">
+                    <div className={`p-2.5 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer bg-gray-700 text-white`}>
                         <i className="bi bi-search text-sm"></i>
-                        <input
-                            type="text"
-                            placeholder="Axtar"
-                            className="text-[15px] ml-4 w-full bg-transparent focus:outline-none"
-                        />
+                        {!collapsed && (
+                            <input
+                                type="text"
+                                placeholder="Axtar"
+                                className="text-[15px] ml-4 w-full bg-transparent focus:outline-none"
+                            />
+                        )}
                     </div>
                     <button
                         onClick={() => setshowSubLinks(!showSubLinks)}
-                        className="p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white w-full">
+                        className={`p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white w-full`}
+                        title={collapsed ? 'Restorant Haqqında' : undefined}
+                    >
                         <i className="bi bi-bookmark-fill"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Restorant Haqqında</span>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Restorant Haqqında</span>}
                     </button>
                     {
-                        showSubLinks &&
+                        showSubLinks && !collapsed &&
                         <div className="mt-2 pl-6 border-l-4 border-orange-600">
                             <NavLink
                                 to="/Admin/Contact"
@@ -97,47 +130,65 @@ const Sidebar = ({ isOpen, onClose }) => {
                         </div>
                     }
 
-                    <NavLink to="/Admin/Menu" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Menu" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-bookmark-fill"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Menu</span>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Menu</span>}
                     </NavLink>
-                    <NavLink to="/Admin/Category" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Category" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-house-door-fill"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Kateqoriya</span>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Kateqoriya</span>}
                     </NavLink>
-                    <NavLink to="/Admin/Product" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Product" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-bookmark-fill"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Məhsul</span>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Məhsul</span>}
                     </NavLink>
-                    <NavLink to="/Admin/Tables" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Tables" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-table"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Masa əlavə et</span>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Masa əlavə et</span>}
                     </NavLink>
-                    <NavLink to="/Admin/TableManage" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/TableManage" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-gear"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Masaların idarəsi</span>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Masaların idarəsi</span>}
                     </NavLink>
-                    <NavLink to="/Admin/Accounts" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/Accounts" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-receipt"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Hesabların idarəsi</span>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Hesabların idarəsi</span>}
                     </NavLink>
-                    <NavLink to="/Admin/SoldProducts" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
-                        <i className="bi bi-bar-chart-line"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Satılan məhsullar</span>
+                    <NavLink to="/Admin/Finance" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                        <i className="bi bi-wallet2"></i>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Kassa / Maliyyə</span>}
                     </NavLink>
-                    <NavLink to="/Admin/Feedback" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
-                        <i className="bi bi-chat-dots"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Geri Bildirimlər</span>
+                    <NavLink to="/Admin/SetRequests" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md relative ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                        <i className="bi bi-palette"></i>
+                        {!collapsed && (
+                            <span className="text-[15px] ml-4 text-gray-200 font-bold flex items-center gap-2">
+                                Set sorğuları
+                                {hasNewSetRequests && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-500 text-white uppercase">
+                                        Yeni
+                                    </span>
+                                )}
+                            </span>
+                        )}
+                        {collapsed && hasNewSetRequests && (
+                            <span className="absolute top-1/2 right-2 -translate-y-1/2 w-2 h-2 rounded-full bg-green-500" title="Yeni sorğular var"></span>
+                        )}
                     </NavLink>
-                    <NavLink to="/Admin/StockControl" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                    <NavLink to="/Admin/StockControl" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
                         <i className="bi bi-box-seam"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Stok Kontrol</span>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Stok Kontrol</span>}
+                    </NavLink>
+                    <NavLink to="/Admin/SoldProducts" onClick={onClose} className={({ isActive }) => `p-2.5 mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white ${isActive ? 'bg-orange-600 font-bold' : ''}`}>
+                        <i className="bi bi-bar-chart-line"></i>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Satılan məhsullar</span>}
                     </NavLink>
                     <button
                         onClick={logout}
-                        className="p-2.5 w-full mt-3 flex items-center rounded-md px-4 duration-300 cursor-pointer hover:bg-orange-600 text-white">
+                        className={`p-2.5 w-full mt-3 flex items-center rounded-md ${collapsed ? 'px-3 justify-center' : 'px-4'} duration-300 cursor-pointer hover:bg-orange-600 text-white`}
+                        title={collapsed ? 'Çıxış' : undefined}
+                    >
                         <i className="bi bi-bookmark-fill"></i>
-                        <span className="text-[15px] ml-4 text-gray-200 font-bold">Çıxış</span>
+                        {!collapsed && <span className="text-[15px] ml-4 text-gray-200 font-bold">Çıxış</span>}
                     </button>
                     {/* <div className="my-4 bg-gray-600 h-[1px]"></div>
                     <div

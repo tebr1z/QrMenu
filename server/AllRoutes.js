@@ -8,6 +8,10 @@ import OrderRoutes from './routes/Order.js';
 import TableSessionRoutes from './routes/TableSession.js';
 import FeedbackRoutes from './routes/Feedback.js';
 import StockRoutes from './routes/Stock.js';
+import ExtraServiceRoutes from './routes/ExtraService.js';
+import ExpenseRoutes from './routes/Expense.js';
+import ConfigRoutes from './routes/Config.js';
+import SetRequestRoutes from './routes/SetRequest.js';
 const router = express.Router();
 
 router.use('/Auth', Auth)
@@ -19,4 +23,8 @@ router.use('/order', OrderRoutes);
 router.use('/tablesession', TableSessionRoutes);
 router.use('/feedback', FeedbackRoutes);
 router.use('/stock', StockRoutes);
+router.use('/extraservice', ExtraServiceRoutes);
+router.use('/expense', ExpenseRoutes);
+router.use('/config', ConfigRoutes);
+router.use('/setrequest', SetRequestRoutes);
 export default router;

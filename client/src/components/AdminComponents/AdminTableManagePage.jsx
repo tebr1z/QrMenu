@@ -1,19 +1,10 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import axios from 'axios';
-import { io as ioClient } from 'socket.io-client';
 import { ContextUser } from '../../context/CheckUserContext';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API || '/api',
 });
-
-const getSocketUrl = () => {
-  const apiBase = import.meta.env.VITE_API;
-  if (apiBase) {
-    return apiBase.replace(/\/api\/?$/, '');
-  }
-  return window.location.origin;
-};
 
 const AdminTableManagePage = () => {
   const { apiClient } = useContext(ContextUser);
@@ -30,6 +21,11 @@ const AdminTableManagePage = () => {
   const [productDiscounts, setProductDiscounts] = useState({}); // {productId: discountPercentage}
   const [pricingMethod, setPricingMethod] = useState('rounded'); // '30min', 'minute', 'rounded'
   const [timeInputs, setTimeInputs] = useState({}); // {sessionId: hours}
+  const [extraServiceList, setExtraServiceList] = useState([]); // [{ _id, name, price }]
+  const [extraServiceName, setExtraServiceName] = useState('');
+  const [extraServicePrice, setExtraServicePrice] = useState('');
+  const [extraConsolePrice, setExtraConsolePrice] = useState(0);
+  const [savingConsolePrice, setSavingConsolePrice] = useState(false);
   const [changePSModal, setChangePSModal] = useState(null); // {session, table}
   const timerRefs = useRef({});
   const audioRef = useRef(null);
@@ -41,6 +37,7 @@ const AdminTableManagePage = () => {
   const isProcessingPayment = useRef(false); // Track if payment is being processed
   const isFinishingSession = useRef(false); // Track if session is being finished
   const processedOrderIds = useRef(new Set()); // Track processed order IDs to prevent duplicates
+  const sessionCountRef = useRef(0);
 
   // Local storage key for temporary menu data
   const LOCAL_STORAGE_KEY = 'table_manage_temp_data';
@@ -325,10 +322,6 @@ const AdminTableManagePage = () => {
         const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
         if (savedData) {
           const parsedData = JSON.parse(savedData);
-          // If we have saved data and no active sessions, restore it
-          if (parsedData.sessions && parsedData.sessions.length > 0) {
-            setSessions(parsedData.sessions);
-          }
           // Restore pricing method
           if (parsedData.pricingMethod) {
             setPricingMethod(parsedData.pricingMethod);
@@ -346,67 +339,59 @@ const AdminTableManagePage = () => {
     // Cleanup function to clear local storage when component unmounts
     return () => {
       // Only clear if there are no active sessions
-      if (sessions.length === 0) {
+      if (sessionCountRef.current === 0) {
         localStorage.removeItem(LOCAL_STORAGE_KEY);
       }
     };
   }, []);
+
+
+  useEffect(() => {
+    sessionCountRef.current = sessions.length;
+  }, [sessions.length]);
 
   // Save data to local storage whenever sessions or pricing method change
   // Optimized: use debounce to reduce writes
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sessions, pricingMethod }));
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ pricingMethod }));
       } catch (err) {
         // Silently handle errors - local storage is not critical
       }
     }, 500); // Debounce: wait 500ms before saving
 
     return () => clearTimeout(timeoutId);
-  }, [sessions, pricingMethod]);
+  }, [pricingMethod]);
+
 
   // Fetch tables, active sessions, products, and categories from backend
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [tablesRes, sessionsRes, productsRes, categoriesRes] = await Promise.all([
+        const [tablesRes, sessionsRes, productsRes, categoriesRes, extraServicesRes, configRes] = await Promise.all([
           api.get('/table/GetTables'),
           api.get('/tablesession/Active'),
           api.get('/Product/GetProduct'),
           api.get('/Category/GetCategory'),
+          api.get('/extraservice'),
+          api.get('/config/extraConsolePrice'),
         ]);
         
         // Categories loaded successfully
         setTables(Array.isArray(tablesRes.data) ? tablesRes.data : []);
         
-        // Merge backend sessions with local storage data
+        // Use backend sessions as the source of truth
         const backendSessions = Array.isArray(sessionsRes.data) ? sessionsRes.data : [];
-        const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
-        let localSessions = [];
-        
-        if (localData) {
-          try {
-            const parsedData = JSON.parse(localData);
-            localSessions = parsedData.sessions || [];
-          } catch (err) {
-            console.error('Local data parse xətası:', err);
-          }
-        }
-
-        // Merge sessions: backend sessions take priority, but keep local menu additions
-        const mergedSessions = backendSessions.map(backendSession => {
-          const localSession = localSessions.find(ls => ls.tableId === backendSession.tableId);
-          return {
-            ...backendSession,
-            selectedMenu: localSession ? localSession.selectedMenu : backendSession.selectedMenu || []
-          };
-        });
-
-        setSessions(mergedSessions);
+        setSessions(backendSessions);
         setProducts(Array.isArray(productsRes.data) ? productsRes.data : []);
         setCategories(Array.isArray(categoriesRes.data) ? categoriesRes.data : []);
+        setExtraServiceList(Array.isArray(extraServicesRes.data) ? extraServicesRes.data : []);
+        const consoleVal = configRes.data?.value;
+        if (consoleVal !== null && consoleVal !== undefined && !isNaN(Number(consoleVal))) {
+          setExtraConsolePrice(Number(consoleVal));
+        }
       } catch (err) {
         console.error('Data fetch error:', err);
         setNotification('Məlumatlar yüklənmədi: ' + (err.message || 'Naməlum xəta'));
@@ -418,38 +403,6 @@ const AdminTableManagePage = () => {
     fetchAll();
   }, []);
 
-  useEffect(() => {
-    const socket = ioClient(getSocketUrl(), {
-      transports: ['websocket'],
-      withCredentials: true,
-    });
-
-    const upsertSession = (session) => {
-      if (!session || !session._id) return;
-      setSessions(prev => {
-        const index = prev.findIndex(item => item._id === session._id);
-        if (index === -1) {
-          return [...prev, session];
-        }
-        const next = [...prev];
-        next[index] = { ...prev[index], ...session };
-        return next;
-      });
-    };
-
-    const removeSession = (session) => {
-      if (!session || !session._id) return;
-      setSessions(prev => prev.filter(item => item._id !== session._id));
-    };
-
-    socket.on('tablesession:started', upsertSession);
-    socket.on('tablesession:updated', upsertSession);
-    socket.on('tablesession:ended', removeSession);
-
-    return () => {
-      socket.disconnect();
-    };
-  }, []);
 
   // Timer effect for active sessions - optimized to prevent unnecessary re-renders
   useEffect(() => {
@@ -521,6 +474,20 @@ const AdminTableManagePage = () => {
   const handleStartClick = async (table) => {
     setLoading(true);
     try {
+      // Prevent starting if this table already has active session
+      const existingSession = sessions.find(
+        s => s.tableId === (table.id || table._id)
+      );
+      if (existingSession) {
+        setNotification('Bu masa artıq aktivdir, əvvəlcə bitirin');
+        setNotificationType('warning');
+        setTimeout(() => {
+          setNotification('');
+          setNotificationType('info');
+        }, 3000);
+        return;
+      }
+
       // Use default PS if available, otherwise use first available PS or null
       let psType = table.defaultPS || null;
       let hourlyPrice = table.hourlyPrice;
@@ -574,18 +541,6 @@ const AdminTableManagePage = () => {
       const savedSession = response.data.session;
       
       setSessions(prev => [...prev, savedSession]);
-      
-      // Clear any local storage data for this table
-      const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (localData) {
-        try {
-          const parsedData = JSON.parse(localData);
-          const filteredSessions = (parsedData.sessions || []).filter(s => s.tableId !== table.id && s.tableId !== table._id);
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sessions: filteredSessions }));
-        } catch (err) {
-          console.error('Local storage təmizlənərkən xəta:', err);
-        }
-      }
       
       if (psType) {
         setNotification(`Session başladıldı (${psType}, ${hourlyPrice}₼/saat)`);
@@ -725,23 +680,24 @@ const AdminTableManagePage = () => {
       }
     }
 
-    // Show local storage notification
-    setNotification('Menyu əlavə edildi və local storage-a yazıldı');
+    setNotification('Menyu əlavə edildi');
     setNotificationType('info');
 
     // Update in backend
     try {
       const session = updatedSessions.find(s => s._id === sessionId);
       if (session) {
-        await api.put(`/tablesession/${sessionId}/menu`, {
+        const response = await api.put(`/tablesession/${sessionId}/menu`, {
           selectedMenu: session.selectedMenu
         });
-        setNotification('Menyu backend-ə də yazıldı');
-        setNotificationType('info');
+        const savedSession = response.data?.session;
+        if (savedSession && savedSession._id) {
+          setSessions(prev => prev.map(s => (s._id === savedSession._id ? savedSession : s)));
+        }
       }
     } catch (err) {
       // Error updating menu in backend
-      setNotification('Menyu local storage-a yazıldı, amma backend-ə yazılmadı');
+      setNotification('Menyu backend-ə yazılmadı');
       setNotificationType('warning');
     }
 
@@ -752,13 +708,136 @@ const AdminTableManagePage = () => {
     }, 3000);
   };
 
+  const handleAddExtraServiceToList = async () => {
+    const name = extraServiceName.trim();
+    const price = Number(extraServicePrice) || 0;
+    if (!name) return;
+    try {
+      const res = await api.post('/extraservice', { name, price });
+      const created = res.data?.service;
+      if (created) {
+        setExtraServiceList(prev => [created, ...prev]);
+        setExtraServiceName('');
+        setExtraServicePrice('');
+      }
+    } catch (err) {
+      setNotification('Əlavə xidmət əlavə olunmadı');
+      setNotificationType('warning');
+      setTimeout(() => {
+        setNotification('');
+        setNotificationType('info');
+      }, 3000);
+    }
+  };
+
+  const handleRemoveExtraServiceFromList = async (index) => {
+    const service = extraServiceList[index];
+    if (!service?._id) {
+      setExtraServiceList(prev => prev.filter((_, idx) => idx !== index));
+      return;
+    }
+    try {
+      await api.delete(`/extraservice/${service._id}`);
+      setExtraServiceList(prev => prev.filter((_, idx) => idx !== index));
+    } catch (err) {
+      setNotification('Əlavə xidmət silinmədi');
+      setNotificationType('warning');
+      setTimeout(() => {
+        setNotification('');
+        setNotificationType('info');
+      }, 3000);
+    }
+  };
+
+  const handleAddExtraServiceToSession = async (sessionId, serviceItem) => {
+    if (!serviceItem || !serviceItem.name) return;
+    const extraId = `service:${serviceItem._id || serviceItem.name}:${serviceItem.price}`;
+    const selectedProduct = { ...serviceItem, extraId, isExtra: true };
+
+    const updatedSessions = sessions.map(s => {
+      if (s._id === sessionId) {
+        const existingItemIndex = s.selectedMenu.findIndex(
+          item => item.extraId === extraId
+        );
+        if (existingItemIndex >= 0) {
+          const updatedMenu = [...s.selectedMenu];
+          updatedMenu[existingItemIndex] = {
+            ...updatedMenu[existingItemIndex],
+            quantity: (updatedMenu[existingItemIndex].quantity || 1) + 1
+          };
+          return { ...s, selectedMenu: updatedMenu };
+        }
+        return { ...s, selectedMenu: [...s.selectedMenu, { ...selectedProduct, quantity: 1 }] };
+      }
+      return s;
+    });
+    setSessions(updatedSessions);
+
+    try {
+      const session = updatedSessions.find(s => s._id === sessionId);
+      if (session) {
+        const response = await api.put(`/tablesession/${sessionId}/menu`, {
+          selectedMenu: session.selectedMenu
+        });
+        const savedSession = response.data?.session;
+        if (savedSession && savedSession._id) {
+          setSessions(prev => prev.map(s => (s._id === savedSession._id ? savedSession : s)));
+        }
+      }
+    } catch (err) {
+      setNotification('Menyu backend-ə yazılmadı');
+      setNotificationType('warning');
+      setTimeout(() => {
+        setNotification('');
+        setNotificationType('info');
+      }, 3000);
+    }
+  };
+
+  const handleAddExtraConsole = async (sessionId) => {
+    const priceNum = Number(extraConsolePrice) || 0;
+    if (priceNum <= 0) return;
+    const serviceItem = {
+      _id: 'EXTRA_CONSOLE',
+      name: 'Əlavə pult',
+      price: priceNum,
+      isExtra: true,
+    };
+    await handleAddExtraServiceToSession(sessionId, serviceItem);
+  };
+
+  const handleSaveExtraConsolePrice = async () => {
+    const priceNum = Number(extraConsolePrice) || 0;
+    if (priceNum < 0) return;
+    setSavingConsolePrice(true);
+    try {
+      await api.put('/config/extraConsolePrice', { value: priceNum });
+      setNotification('Əlavə pult qiyməti yadda saxlanıldı');
+      setNotificationType('info');
+      setTimeout(() => {
+        setNotification('');
+        setNotificationType('info');
+      }, 3000);
+    } catch (err) {
+      setNotification('Əlavə pult qiyməti saxlanılarkən xəta baş verdi');
+      setNotificationType('error');
+      setTimeout(() => {
+        setNotification('');
+        setNotificationType('info');
+      }, 4000);
+    } finally {
+      setSavingConsolePrice(false);
+    }
+  };
+
   // Remove menu item from session (both local and backend)
   const handleRemoveMenuFromSession = async (sessionId, menuId) => {
     const updatedSessions = sessions.map(s => {
       if (s._id === sessionId) {
         const updatedMenu = s.selectedMenu
           .map(item => {
-            if ((item._id || item.id) === menuId) {
+            const itemId = item._id || item.id || item.extraId;
+            if (itemId != null && String(itemId) === String(menuId)) {
               const currentQuantity = item.quantity || 1;
               if (currentQuantity > 1) {
                 // Decrease quantity
@@ -809,7 +888,8 @@ const AdminTableManagePage = () => {
     const updatedSessions = sessions.map(s => {
       if (s._id === sessionId) {
         const updatedMenu = s.selectedMenu.map(item => {
-          if ((item._id || item.id) === menuId) {
+          const itemId = item._id || item.id || item.extraId;
+          if (itemId != null && String(itemId) === String(menuId)) {
             return { ...item, quantity: (item.quantity || 1) + 1 };
           }
           return item;
@@ -839,7 +919,8 @@ const AdminTableManagePage = () => {
       if (s._id === sessionId) {
         const updatedMenu = s.selectedMenu
           .map(item => {
-            if ((item._id || item.id) === menuId) {
+            const itemId = item._id || item.id || item.extraId;
+            if (itemId != null && String(itemId) === String(menuId)) {
               const currentQuantity = item.quantity || 1;
               if (currentQuantity > 1) {
                 return { ...item, quantity: currentQuantity - 1 };
@@ -1151,6 +1232,7 @@ const AdminTableManagePage = () => {
       const total = hourTotal + menuTotal + psPriceDifference;
       
       const order = {
+        sessionId: session._id,
         tableId: session.tableId,
         tableName: session.tableName,
         startTime: session.startTime,
@@ -1264,13 +1346,6 @@ const AdminTableManagePage = () => {
         orderId: orderId // Add unique order ID
       };
       
-      // Find session first to ensure it exists
-      const session = sessions.find(s => s.tableId === modalOrder.tableId);
-      if (!session) {
-        processedOrderIds.current.delete(orderId);
-        throw new Error('Session tapılmadı');
-      }
-      
       // Add order to backend (with duplicate check)
       try {
         await api.post('/order/AddOrder', orderWithDiscount);
@@ -1287,25 +1362,15 @@ const AdminTableManagePage = () => {
       
       // Delete session from backend (even if duplicate order)
       try {
-        await api.delete(`/tablesession/${session._id}`);
+        const sessionId = modalOrder.sessionId || (sessions.find(s => s.tableId === modalOrder.tableId)?._id);
+        if (sessionId) {
+          await api.delete(`/tablesession/${sessionId}`);
+          // Remove from local sessions immediately
+          setSessions(prev => prev.filter(s => s._id !== sessionId));
+        }
       } catch (deleteError) {
         console.error('Session silinərkən xəta:', deleteError);
         // Continue anyway - session might already be deleted
-      }
-      
-      // Remove from local sessions immediately
-      setSessions(prev => prev.filter(s => s._id !== session._id));
-      
-      // Clear local storage for this table
-      const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (localData) {
-        try {
-          const parsedData = JSON.parse(localData);
-          const filteredSessions = (parsedData.sessions || []).filter(s => s.tableId !== modalOrder.tableId);
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sessions: filteredSessions }));
-        } catch (err) {
-          console.error('Local storage təmizlənərkən xəta:', err);
-        }
       }
       
       // Close modal immediately
@@ -1526,6 +1591,36 @@ const AdminTableManagePage = () => {
           </label>
         </div>
       </div>
+
+      <div className="bg-white rounded-xl sm:rounded-2xl shadow-lg p-3 sm:p-4 md:p-6 mb-4 sm:mb-6">
+        <h3 className="text-base sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4">Əlavə pult qiyməti</h3>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <i className="bi bi-controller text-purple-600 text-xl"></i>
+            <span className="text-sm text-gray-700 font-medium">Əlavə pult (saatlıq və ya vahid qiymət):</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              placeholder="Qiymət (₼)"
+              value={extraConsolePrice}
+              onChange={e => setExtraConsolePrice(e.target.value)}
+              className="w-28 border px-2 py-1.5 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+            <button
+              type="button"
+              onClick={handleSaveExtraConsolePrice}
+              disabled={savingConsolePrice}
+              className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 disabled:opacity-50"
+            >
+              {savingConsolePrice ? 'Yadda saxlanır...' : 'Yadda saxla'}
+            </button>
+          </div>
+          <span className="text-xs text-gray-500">
+            Hər dəfə pult düyməsinə basanda menyuya bu məbləğ əlavə olunacaq. Sayı menyu içində + / - ilə dəyişə bilərsən.
+          </span>
+        </div>
+      </div>
       
       
       {loading && <div className="text-gray-500 mb-4">Yüklənir...</div>}
@@ -1575,14 +1670,61 @@ const AdminTableManagePage = () => {
                   </span>
                 )}
                 {session && (
-                  <button
-                    onClick={() => handleChangePS(session, table)}
-                    className="w-full sm:w-auto px-3 py-1.5 sm:py-1 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1"
-                    title="PS növünü dəyişdir"
-                  >
-                    <i className="bi bi-arrow-repeat"></i>
-                    PS Dəyişdir
-                  </button>
+                  <>
+                    <button
+                      onClick={() => handleChangePS(session, table)}
+                      className="w-full sm:w-auto px-3 py-1.5 sm:py-1 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1"
+                      title="PS növünü dəyişdir"
+                    >
+                      <i className="bi bi-arrow-repeat"></i>
+                      PS Dəyişdir
+                    </button>
+                    {/* Əlavə pult + minimal - N + yan-yana */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleAddExtraConsole(session._id)}
+                        disabled={!extraConsolePrice || Number(extraConsolePrice) <= 0}
+                        className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold transition disabled:opacity-50"
+                        title="Əlavə pult"
+                      >
+                        <i className="bi bi-controller"></i>
+                        <span>Əlavə pult</span>
+                        {Number(extraConsolePrice) > 0 && (
+                          <span className="text-[10px] opacity-90">({Number(extraConsolePrice)}₼)</span>
+                        )}
+                      </button>
+                      {(() => {
+                        const extraItem = session.selectedMenu.find(m => m.isExtra || m.name === 'Əlavə pult');
+                        const qty = extraItem ? (extraItem.quantity || 1) : 0;
+                        const rawId = extraItem ? (extraItem.extraId ?? extraItem._id ?? extraItem.id) : null;
+                        const menuId = rawId != null ? String(rawId) : null;
+                        return (
+                          <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg px-1 py-0.5 border border-gray-200">
+                            <button
+                              type="button"
+                              onClick={() => { if (qty > 0 && menuId) handleDecreaseQuantity(session._id, menuId); }}
+                              disabled={qty <= 0}
+                              className="w-6 h-6 rounded-full bg-red-100 text-red-600 hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold transition"
+                              title="Azalt"
+                            >
+                              −
+                            </button>
+                            <span className="min-w-[1.25rem] text-center text-xs font-bold text-gray-700">{qty}</span>
+                            <button
+                              type="button"
+                              onClick={() => { if (qty === 0) handleAddExtraConsole(session._id); else if (menuId) handleIncreaseQuantity(session._id, menuId); }}
+                              disabled={!extraConsolePrice || Number(extraConsolePrice) <= 0}
+                              className="w-6 h-6 rounded-full bg-green-100 text-green-600 hover:bg-green-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold transition"
+                              title="Artır"
+                            >
+                              +
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </>
                 )}
               </div>
               {!session ? (
@@ -1798,14 +1940,17 @@ const AdminTableManagePage = () => {
                       )}
                     </div>
                   </div>
-                  {session.selectedMenu.length > 0 && (
+                  {session.selectedMenu.filter(item => !item.isExtra).length > 0 && (
                     <div className="mb-2 flex flex-wrap gap-2 mt-2">
-                      {session.selectedMenu.map((item, index) => {
+                      {session.selectedMenu.filter(item => !item.isExtra).map((item, index) => {
                         const quantity = item.quantity || 1;
-                        const itemId = item._id || item.id;
+                        const itemId = item._id || item.id || item.extraId;
                         return (
                           <div key={itemId || index} className="bg-white border border-orange-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 sm:gap-3 shadow-sm w-full sm:w-auto">
-                            <span className="text-xs sm:text-sm font-medium text-gray-700 flex-1 break-words">{item.name} <span className="text-gray-400">({item.price}₼)</span></span>
+                            <span className="text-xs sm:text-sm font-medium text-gray-700 flex-1 break-words">
+                              {item.name} <span className="text-gray-400">({item.price}₼)</span>
+                              {item.isExtra && <span className="ml-1 text-[10px] text-indigo-500 font-semibold">extra</span>}
+                            </span>
                             <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                               <button
                                 title="Azalt"

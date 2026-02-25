@@ -8,7 +8,7 @@ import { useLocation, Navigate } from 'react-router-dom'
 import Home from './page/Home'
 import Detail from './page/Detail'
 import Navbar from './components/Navbar'
-import FeedbackButton from './components/FeedbackButton'
+import CustomSetButton from './components/CustomSetButton'
 import Contact from './page/Contact'
 import WorkTime from './page/WorkTime'
 import Language from './page/Language'
@@ -22,9 +22,12 @@ import AdminContact from './page/AdminContact'
 import AdminTablePage from './components/AdminComponents/AdminTablePage'
 import AdminTableManagePage from './components/AdminComponents/AdminTableManagePage'
 import AdminAccountsPage from './components/AdminComponents/AdminAccountsPage'
-import AdminFeedback from './page/AdminFeedback'
+import AdminSetRequests from './page/AdminSetRequests'
 import AdminStockControl from './page/AdminStockControl'
+import TableStatus from './page/TableStatus'
+import NotFound from './page/NotFound'
 import AdminSoldProductsPage from './components/AdminComponents/AdminSoldProductsPage'
+import AdminFinancePage from './components/AdminComponents/AdminFinancePage'
 
 const App = () => {
   const { pathname } = useLocation()
@@ -42,6 +45,7 @@ const App = () => {
         <Route path="/Details/:name" element={<Detail />} />
         <Route path="/Contact" element={<Contact />} />
         <Route path="/WorkTime" element={<WorkTime />} />
+        <Route path="/TableStatus" element={<TableStatus />} />
         {/* <Route path="/Language" element={<Language />} /> */}
 
         <Route path="/Sign" element={<Sign />} />
@@ -55,11 +59,13 @@ const App = () => {
           <Route path="TableManage" element={<AdminTableManagePage />} />
           <Route path="Accounts" element={<AdminAccountsPage />} />
           <Route path="SoldProducts" element={<AdminSoldProductsPage />} />
-          <Route path="Feedback" element={<AdminFeedback />} />
+          <Route path="Finance" element={<AdminFinancePage />} />
+          <Route path="SetRequests" element={<AdminSetRequests />} />
           <Route path="StockControl" element={<AdminStockControl />} />
         </Route>
+        <Route path="*" element={<NotFound />} />
       </Routes>
-      <FeedbackButton />
+      {!hideHeader && <CustomSetButton />}
     </>
   )
 }

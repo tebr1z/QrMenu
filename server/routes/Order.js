@@ -4,18 +4,24 @@ import Product from '../model/ProductModal.js';
 
 const router = express.Router();
 
-// Bütün sifarişləri al və ya tarixə görə filtrlə
+// Bütün sifarişləri al və ya tarixə / intervala görə filtrlə
 router.get('/GetOrders', async (req, res) => {
     try {
-        const { date } = req.query;
-        let query = {};
+        const { date, from, to } = req.query;
+        const query = {};
+
         if (date) {
             // YYYY-MM-DD formatında gəlir
             const start = new Date(date);
             const end = new Date(date);
             end.setDate(end.getDate() + 1);
             query.createdAt = { $gte: start, $lt: end };
+        } else if (from || to) {
+            const start = from ? new Date(from) : new Date('1970-01-01');
+            const end = to ? new Date(to) : new Date('2999-12-31');
+            query.createdAt = { $gte: start, $lt: end };
         }
+
         const orders = await Order.find(query).sort({ createdAt: -1 });
         res.status(200).json(orders);
     } catch (error) {

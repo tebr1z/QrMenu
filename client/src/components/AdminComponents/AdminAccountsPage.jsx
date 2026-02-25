@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { MASTER_ADMIN_PASSWORD } from '../../config/auth';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API || '/api',
@@ -13,6 +14,10 @@ const AdminAccountsPage = () => {
   });
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState('');
+  const [masterUnlocked, setMasterUnlocked] = useState(false);
+  const [showMasterModal, setShowMasterModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   const fetchOrders = async () => {
     try {
@@ -117,12 +122,22 @@ const AdminAccountsPage = () => {
     }
   };
 
+  const handleMasterUnlock = (e) => {
+    e.preventDefault();
+    if (passwordInput === MASTER_ADMIN_PASSWORD) {
+      setMasterUnlocked(true);
+      setShowMasterModal(false);
+      setPasswordInput('');
+      setPasswordError('');
+    } else {
+      setPasswordError('Şifrə yanlışdır');
+    }
+  };
+
   const formatTime = (ms) => {
     const date = new Date(ms);
     return date.toLocaleString();
   };
-
-  const totalIncome = orders.reduce((sum, order) => sum + order.total, 0);
 
   const formatMenuItem = (item) => {
     const quantity = item.quantity || 1;
@@ -168,20 +183,68 @@ const AdminAccountsPage = () => {
   return (
     <div className="max-w-5xl mx-auto p-4 relative">
       <h1 className="text-3xl font-bold mb-8 text-gray-800 text-center tracking-tight">Bitmiş sifarişlər</h1>
-      
-      {/* Notification */}
-      {notification && (
-        <div className={`mb-4 px-4 py-3 rounded-lg flex items-center gap-2 ${
-          notification.includes('xəta') 
-            ? 'bg-red-100 border border-red-400 text-red-700' 
-            : 'bg-green-100 border border-green-400 text-green-700'
-        }`}>
-          <i className={`bi ${notification.includes('xəta') ? 'bi-x-circle' : 'bi-check-circle'}`}></i>
-          {notification}
+
+      {/* Master admin */}
+      <div className="mb-6 flex justify-end">
+        {masterUnlocked ? (
+          <span className="px-4 py-2 rounded-lg bg-green-100 text-green-800 font-semibold flex items-center gap-2">
+            <i className="bi bi-shield-check"></i>
+            Master admin aktiv
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => { setShowMasterModal(true); setPasswordError(''); setPasswordInput(''); }}
+            className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold flex items-center gap-2 transition"
+          >
+            <i className="bi bi-shield-lock"></i>
+            Master admin
+          </button>
+        )}
+      </div>
+
+      {/* Master admin şifrə modal */}
+      {showMasterModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowMasterModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="text-lg font-semibold text-gray-800 mb-2">Master admin</div>
+            <p className="text-sm text-gray-500 mb-4">Bitmiş sifarişi silmək üçün şifrə daxil edin</p>
+            <form onSubmit={handleMasterUnlock}>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={e => { setPasswordInput(e.target.value); setPasswordError(''); }}
+                placeholder="Şifrə"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                autoFocus
+              />
+              {passwordError && <div className="text-sm text-red-500 mt-2">{passwordError}</div>}
+              <div className="flex gap-2 mt-4">
+                <button type="button" onClick={() => setShowMasterModal(false)} className="flex-1 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">
+                  Ləğv et
+                </button>
+                <button type="submit" className="flex-1 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold">
+                  Təsdiq et
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
       
-      <div className="mb-8 flex flex-col md:flex-row md:items-center gap-4 justify-between">
+      {/* Notification */}
+          {notification && (
+            <div className={`mb-4 px-4 py-3 rounded-lg flex items-center gap-2 ${
+              notification.includes('xəta') 
+                ? 'bg-red-100 border border-red-400 text-red-700' 
+                : 'bg-green-100 border border-green-400 text-green-700'
+            }`}>
+              <i className={`bi ${notification.includes('xəta') ? 'bi-x-circle' : 'bi-check-circle'}`}></i>
+              {notification}
+            </div>
+          )}
+      
+          <div className="mb-8 flex flex-col md:flex-row md:items-center gap-4 justify-between">
         <div className="flex items-center gap-3">
           <i className="bi bi-calendar-event text-orange-500 text-2xl"></i>
           <label className="font-semibold text-gray-700">Tarixə görə filtrlə:</label>
@@ -193,8 +256,8 @@ const AdminAccountsPage = () => {
           />
         </div>
         <div className="flex items-center gap-4">
-          {/* Duplicate silmə düyməsi */}
-          {findDuplicates().length > 0 && (
+          {/* Duplicate silmə - yalnız şifrə daxil edildikdən sonra görünür */}
+          {masterUnlocked && findDuplicates().length > 0 && (
             <button
               onClick={handleDeleteAllDuplicates}
               disabled={loading}
@@ -205,14 +268,9 @@ const AdminAccountsPage = () => {
               Duplicate-ləri sil ({findDuplicates().length})
             </button>
           )}
-          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-2 font-bold text-green-800 text-xl shadow-sm">
-            <i className="bi bi-cash-coin text-green-600 text-2xl"></i>
-            Günlük gəlir:
-            <span className="ml-2">{totalIncome.toFixed(2)}₼</span>
-          </div>
         </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {orders.length === 0 && <div className="col-span-2 text-gray-500 text-center">Bu tarixdə bitmiş sifariş yoxdur.</div>}
         {orders.map((order, idx) => {
           // Duplicate olub-olmadığını yoxla
@@ -258,10 +316,23 @@ const AdminAccountsPage = () => {
               <div><span className="font-semibold text-gray-600">Məhsul cəmi:</span> <span>{order.menuTotal}₼</span></div>
             </div>
             <div className="text-2xl font-bold text-green-800 mt-4 text-center">Ümumi: {order.total.toFixed(2)}₼</div>
+            {/* Bitmiş sifarişi sil - yalnız şifrə daxil edildikdən sonra görünür */}
+            {masterUnlocked && (
+              <button
+                type="button"
+                onClick={() => handleDeleteOrder(order._id)}
+                disabled={loading}
+                className="mt-3 w-full py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                title="Bu bitmiş sifarişi sil"
+              >
+                <i className="bi bi-trash"></i>
+                Bitmiş sifarişi sil
+              </button>
+            )}
           </div>
         );
         })}
-      </div>
+        </div>
     </div>
   );
 };

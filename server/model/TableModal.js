@@ -28,6 +28,10 @@ const tableSchema = mongoose.Schema({
         enum: ['PS3', 'PS4', 'PS5', null],
         default: null,
     },
+    extraItems: [{
+        name: { type: String, trim: true },
+        price: { type: Number, default: 0 }
+    }],
     createdAt: { type: Date, default: Date.now },
 });
 

@@ -9,6 +9,7 @@ const Admin = () => {
     const { hasJwtToken, checkJwtToken } = useContext(ContextUser)
     const [loading, setLoading] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -48,8 +49,24 @@ const Admin = () => {
                 <i className="bi bi-list text-2xl"></i>
             </button>
             
-            <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-            <div className='flex-1 md:ml-64 pb-20 w-full'>
+            <Sidebar
+                isOpen={isSidebarOpen}
+                onClose={() => setIsSidebarOpen(false)}
+                collapsed={isSidebarCollapsed}
+            />
+            <div className={`flex-1 pb-20 w-full ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
+                {/* Desktop collapse toggle */}
+                <div className="hidden md:flex items-center justify-start p-4">
+                    <button
+                        onClick={() => setIsSidebarCollapsed(prev => !prev)}
+                        className="bg-[#2C2C2C] text-white px-3 py-2 rounded-lg shadow hover:bg-orange-600 transition flex items-center gap-2"
+                    >
+                        <i className={`bi ${isSidebarCollapsed ? 'bi-chevron-right' : 'bi-chevron-left'}`}></i>
+                        <span className="text-sm font-semibold">
+                            {isSidebarCollapsed ? 'Aç' : 'Kapat'}
+                        </span>
+                    </button>
+                </div>
                 <Outlet />
             </div>
         </div>

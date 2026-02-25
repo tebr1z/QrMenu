@@ -7,7 +7,7 @@ import { toast } from 'react-toastify';
 
 const CheckUserContext = ({ children }) => {
     const navigate = useNavigate()
-    const apiUrl = import.meta.env.VITE_API;
+    const apiUrl = import.meta.env.VITE_API || '/api';
 
     const apiClient = axios.create({
         baseURL: apiUrl,

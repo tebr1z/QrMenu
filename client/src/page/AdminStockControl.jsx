@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { ContextUser } from '../context/CheckUserContext';
 import Loading from '../components/Loading';
 import { toast } from 'react-toastify';
+import { MASTER_ADMIN_PASSWORD } from '../config/auth';
 
 const AdminStockControl = () => {
   const { apiClient } = useContext(ContextUser);
@@ -11,6 +12,10 @@ const AdminStockControl = () => {
   const [editingProduct, setEditingProduct] = useState(null);
   const [editStockQuantity, setEditStockQuantity] = useState('');
   const [editPurchasePrice, setEditPurchasePrice] = useState('');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pendingEditProduct, setPendingEditProduct] = useState(null);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
     fetchProducts();
@@ -48,8 +53,30 @@ const AdminStockControl = () => {
 
   const handleEditStock = (product) => {
     setEditingProduct(product._id);
-    setEditStockQuantity(product.stockQuantity || 0);
-    setEditPurchasePrice(product.purchasePrice || 0);
+    setEditStockQuantity(product.stockQuantity ?? 0);
+    setEditPurchasePrice(product.purchasePrice ?? 0);
+  };
+
+  const handleRequestEdit = (product) => {
+    setPendingEditProduct(product);
+    setShowPasswordModal(true);
+    setPasswordInput('');
+    setPasswordError('');
+  };
+
+  const handleConfirmPassword = (e) => {
+    e.preventDefault();
+    if (passwordInput === MASTER_ADMIN_PASSWORD) {
+      if (pendingEditProduct) {
+        handleEditStock(pendingEditProduct);
+        setPendingEditProduct(null);
+      }
+      setShowPasswordModal(false);
+      setPasswordInput('');
+      setPasswordError('');
+    } else {
+      setPasswordError('Şifrə yanlışdır');
+    }
   };
 
   const handleSaveStock = async (productId) => {
@@ -240,7 +267,7 @@ const AdminStockControl = () => {
                           </div>
                         ) : (
                           <button
-                            onClick={() => handleEditStock(product)}
+                            onClick={() => handleRequestEdit(product)}
                             className="px-3 py-1 bg-orange-500 text-white rounded text-sm hover:bg-orange-600"
                           >
                             <i className="bi bi-pencil"></i> Redaktə
@@ -252,6 +279,35 @@ const AdminStockControl = () => {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Stok redaktə üçün şifrə modalı */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => { setShowPasswordModal(false); setPendingEditProduct(null); setPasswordError(''); }}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="text-lg font-semibold text-gray-800 mb-2">Stok redaktə</div>
+            <p className="text-sm text-gray-500 mb-4">Redaktə etmək üçün şifrə daxil edin</p>
+            <form onSubmit={handleConfirmPassword}>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={e => { setPasswordInput(e.target.value); setPasswordError(''); }}
+                placeholder="Şifrə"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                autoFocus
+              />
+              {passwordError && <div className="text-sm text-red-500 mt-2">{passwordError}</div>}
+              <div className="flex gap-2 mt-4">
+                <button type="button" onClick={() => { setShowPasswordModal(false); setPendingEditProduct(null); setPasswordError(''); }} className="flex-1 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">
+                  Ləğv et
+                </button>
+                <button type="submit" className="flex-1 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-semibold">
+                  Təsdiq et
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
