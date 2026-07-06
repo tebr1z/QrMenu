@@ -3,11 +3,18 @@ import Expense from '../model/ExpenseModal.js';
 
 const router = express.Router();
 
-// Get expenses (optional date or range)
+const OPERATIONAL_EXPENSE_FILTER = {
+    $nor: [
+        { kind: 'employee_salary' },
+        { name: { $regex: /^İşçi maaşı:/ } },
+    ],
+};
+
+// Get expenses (optional date or range) — yalnız məhsul/material xərcləri
 router.get('/', async (req, res) => {
     try {
         const { date, from, to } = req.query;
-        const query = {};
+        const query = { ...OPERATIONAL_EXPENSE_FILTER };
 
         if (date) {
             const start = new Date(date);
@@ -27,7 +34,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Add expense
+// Add expense (məhsul / material)
 router.post('/', async (req, res) => {
     try {
         const { name, amount, note, date } = req.body;
@@ -40,6 +47,7 @@ router.post('/', async (req, res) => {
             amount: Number(amount) || 0,
             note: note || '',
             date: date ? new Date(date) : new Date(),
+            kind: 'general',
         });
 
         await expense.save();

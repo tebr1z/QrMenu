@@ -15,6 +15,12 @@ const expenseSchema = mongoose.Schema({
         type: String,
         trim: true,
     },
+    /** general = məhsul/material xərci; employee_salary = köhnə maaş qeydləri (günlük xərclərdə göstərilmir) */
+    kind: {
+        type: String,
+        enum: ['general', 'employee_salary'],
+        default: 'general',
+    },
     date: {
         type: Date,
         required: true,
