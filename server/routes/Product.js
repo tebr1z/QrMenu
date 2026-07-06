@@ -1,18 +1,121 @@
 import express from 'express';
 import { v2 as cloudinary } from 'cloudinary';
 import { CheckToken } from '../middleware/CkeckToken.js';
+import { requireRole } from '../middleware/requireRole.js';
+import { requirePermission } from '../middleware/requirePermission.js';
+import { requireAnyPermission } from '../middleware/requireAnyPermission.js';
+import { logAudit } from '../utils/auditLog.js';
+import { calcUnitCost } from '../utils/stockUnits.js';
+import mongoose from 'mongoose';
 import Product from '../model/ProductModal.js';
 import Category from "../model/CategoryModal.js";
 import Table from '../model/TableModal.js';
 
 const router = express.Router();
 
+function toObjectId(val) {
+    if (!val) return null;
+    const id = val._id || val;
+    const str = String(id);
+    if (!mongoose.Types.ObjectId.isValid(str)) return null;
+    return new mongoose.Types.ObjectId(str);
+}
+
+/** Set elementlərini DB üçün təmizlə */
+function normalizeSetItems(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item) => {
+        const productId = toObjectId(item?.productId);
+        if (!productId) return null;
+        const section = item?.section === 'internal' ? 'internal' : 'qr';
+        const base = {
+            productId,
+            quantity: Math.max(1, Number(item?.quantity) || 1),
+            section,
+        };
+        if (section === 'internal') {
+            const linkedId = toObjectId(item?.linkedProductId) || productId;
+            const deductAmount = Number(item?.deductAmount) || 0;
+            const deductUnit = ['g', 'kg', 'piece'].includes(item?.deductUnit) ? item.deductUnit : 'g';
+            return {
+                ...base,
+                linkedProductId: linkedId,
+                deductAmount,
+                deductUnit,
+            };
+        }
+        return base;
+    }).filter(Boolean);
+}
+
+function parseJsonField(val, fallback = []) {
+    if (!val) return fallback;
+    try {
+        return typeof val === 'string' ? JSON.parse(val) : val;
+    } catch {
+        return fallback;
+    }
+}
+
+function parseBooleanField(val, defaultValue = true) {
+    if (val === undefined || val === null || val === '') return defaultValue;
+    if (val === true || val === 'true') return true;
+    if (val === false || val === 'false') return false;
+    return defaultValue;
+}
+
+function validateProductPrice({ price, showInCustomerMenu, existingVisibleInMenu = true }) {
+    const visibleInMenu = showInCustomerMenu !== undefined
+        ? parseBooleanField(showInCustomerMenu, true)
+        : existingVisibleInMenu !== false;
+
+    let priceNum;
+    if (price === undefined || price === null || price === '') {
+        if (visibleInMenu) {
+            return 'Qiymət daxil edin.';
+        }
+        priceNum = 0;
+    } else {
+        priceNum = parseFloat(price);
+        if (Number.isNaN(priceNum)) {
+            return 'Düzgün qiymət daxil edin.';
+        }
+    }
+
+    if (priceNum < 0) {
+        return 'Qiymət mənfi ola bilməz.';
+    }
+    if (visibleInMenu && priceNum <= 0) {
+        return 'Menyuda görünən məhsulun qiyməti 0 ola bilməz.';
+    }
+    return null;
+}
+
+function parsePriceValue(price) {
+    if (price === undefined || price === null || price === '') return 0;
+    return parseFloat(price);
+}
+
+function parseStockPayload(body) {
+    const stockQty = parseFloat(body.stockQuantity) || 0;
+    const purchasePrc = parseFloat(body.purchasePrice) || 0;
+    return {
+        stockQuantity: stockQty,
+        stockUnit: body.stockUnit || 'piece',
+        portionSize: parseFloat(body.portionSize) || 0,
+        portionUnit: body.portionUnit || body.stockUnit || 'piece',
+        lowStockThreshold: parseFloat(body.lowStockThreshold) || 5,
+        purchasePrice: purchasePrc,
+        unitCost: calcUnitCost(purchasePrc, stockQty),
+    };
+}
+
 router.get("/GetProduct", async (req, res) => {
     try {
         // Optimized: only select needed fields and populate category name
         const products = await Product.find({})
             .populate("category", "name image")
-            .select("name price category description image imageId freeMinutes freeMinutesForPS order stockQuantity purchasePrice unitCost isSet setItems createdAt")
+            .select("name price oldPrice category description image imageId freeMinutes freeMinutesForPS order stockQuantity stockUnit portionSize portionUnit lowStockThreshold purchasePrice unitCost salesCost showInCustomerMenu isSet setItems ingredients createdAt")
             .lean(); // Use lean() for better performance (returns plain JS objects)
         res.status(200).json(products)
     } catch (error) {
@@ -26,15 +129,21 @@ router.get("/GetProduct", async (req, res) => {
 router.get("/GetProduct/:name", async (req, res) => {
     const { name } = req.params;
     try {
-        const categoryId = await Category.findOne({ name }).select("_id").lean();
-        if (!categoryId) {
+        const categoryDoc = await Category.findOne({ name }).select("_id showInCustomerMenu").lean();
+        if (!categoryDoc) {
+            return res.status(404).json({ message: "Category not found" });
+        }
+        if (categoryDoc.showInCustomerMenu === false) {
             return res.status(404).json({ message: "Category not found" });
         }
 
         // Optimized: use lean() and select only needed fields
-        const products = await Product.find({ category: categoryId._id })
+        const products = await Product.find({
+            category: categoryDoc._id,
+            showInCustomerMenu: { $ne: false },
+        })
             .populate("category", "name image")
-            .select("name price category description image imageId freeMinutes freeMinutesForPS order stockQuantity purchasePrice unitCost isSet setItems createdAt")
+            .select("name price oldPrice category description image imageId freeMinutes freeMinutesForPS order stockQuantity stockUnit portionSize portionUnit lowStockThreshold purchasePrice unitCost salesCost showInCustomerMenu isSet setItems ingredients createdAt")
             .sort({ order: 1, createdAt: -1 })
             .lean();
 
@@ -49,14 +158,14 @@ router.get("/GetProduct/:name", async (req, res) => {
 });
 
 // router.use(CheckToken);
-router.post("/AddProduct", async (req, res) => {
+router.post("/AddProduct", CheckToken, requireAnyPermission('Product', 'edit', 'view'), async (req, res) => {
     // Log the request for debugging
     console.log('=== AddProduct Request ===');
     console.log('Request body:', req.body);
     console.log('Request files:', req.files);
     console.log('Files keys:', req.files ? Object.keys(req.files) : 'No files');
     
-    const { name, price, category, description, freeMinutes, freeMinutesForPS, stockQuantity, purchasePrice, isSet, setItems } = req.body;
+    const { name, price, oldPrice, category, description, freeMinutes, freeMinutesForPS, stockQuantity, purchasePrice, isSet, setItems, ingredients, showInCustomerMenu } = req.body;
     let imageProduct = req.files && req.files.imageProduct;
     let imageId = null;
     
@@ -68,8 +177,13 @@ router.post("/AddProduct", async (req, res) => {
     console.log('- freeMinutes:', freeMinutes);
     console.log('- imageProduct:', imageProduct);
 
-    if (!name || !price || !category) {
-        return res.status(422).json({ error: "Zəhmət olmasa, ad, qiymət və kateqoriya seçin." });
+    if (!name || !category) {
+        return res.status(422).json({ error: "Zəhmət olmasa, ad və kateqoriya seçin." });
+    }
+
+    const priceError = validateProductPrice({ price, showInCustomerMenu });
+    if (priceError) {
+        return res.status(422).json({ error: priceError });
     }
 
     if (imageProduct) {
@@ -122,35 +236,30 @@ router.post("/AddProduct", async (req, res) => {
         console.log('- imageId:', imageId);
         console.log('- freeMinutes:', Number(freeMinutes) || 0);
         
-        // Calculate unit cost
-        const stockQty = Number(stockQuantity) || 0;
-        const purchasePrc = Number(purchasePrice) || 0;
-        const unitCost = stockQty > 0 && purchasePrc > 0 ? purchasePrc / stockQty : 0;
+        const stockFields = parseStockPayload(req.body);
 
-        // Parse setItems if provided
-        let parsedSetItems = [];
-        if (isSet && setItems) {
-            try {
-                parsedSetItems = typeof setItems === 'string' ? JSON.parse(setItems) : setItems;
-            } catch (e) {
-                console.error('Error parsing setItems:', e);
-            }
-        }
+        const isSetProduct = isSet === 'true' || isSet === true;
+        const parsedSetItems = isSetProduct
+            ? normalizeSetItems(parseJsonField(setItems, []))
+            : [];
+
+        const parsedIngredients = parseJsonField(ingredients, []);
 
         const newProduct = new Product({
             name,
-            price: parseFloat(price),
+            price: parsePriceValue(price),
+            oldPrice: oldPrice !== undefined && oldPrice !== '' ? parseFloat(oldPrice) : 0,
             category,
             description: description || '',
             image: imageProduct ? imageProduct : undefined,
             imageId,
             freeMinutes: Number(freeMinutes) || 0,
             freeMinutesForPS: freeMinutesForPS || null,
-            stockQuantity: stockQty,
-            purchasePrice: purchasePrc,
-            unitCost: unitCost,
-            isSet: isSet === 'true' || isSet === true,
+            ...stockFields,
+            showInCustomerMenu: parseBooleanField(showInCustomerMenu, true),
+            isSet: isSetProduct,
             setItems: parsedSetItems,
+            ingredients: parsedIngredients,
         })
 
         await newProduct.save()
@@ -158,9 +267,12 @@ router.post("/AddProduct", async (req, res) => {
         // Populate category before sending response
         await newProduct.populate('category')
         
-        console.log('Saved product from database:', newProduct);
-        console.log('Product image field:', newProduct.image);
-        console.log('Product imageId field:', newProduct.imageId);
+        await logAudit(req, {
+            action: 'create',
+            resource: 'Product',
+            resourceId: newProduct._id,
+            summary: `Məhsul əlavə edildi: ${newProduct.name}`,
+        });
 
         res.status(201).json({ message: "Məhsul əlavə edildi", newProduct })
 
@@ -170,7 +282,66 @@ router.post("/AddProduct", async (req, res) => {
     }
 })
 
-router.put("/UpdateProduct/:id", async (req, res) => {
+router.patch("/ToggleCustomerMenu/:id", CheckToken, requirePermission('Product', 'edit'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const existing = await Product.findById(id);
+        if (!existing) {
+            return res.status(404).json({ error: 'Məhsul tapılmadı' });
+        }
+        const nextVisible = existing.showInCustomerMenu === false;
+        const product = await Product.findByIdAndUpdate(
+            id,
+            { showInCustomerMenu: nextVisible },
+            { new: true }
+        ).populate('category');
+
+        await logAudit(req, {
+            action: 'update',
+            resource: 'Product',
+            resourceId: product._id,
+            summary: nextVisible
+                ? `Məhsul müştəri menyusunda göstərilir: ${product.name}`
+                : `Məhsul müştəri menyusundan gizlədildi: ${product.name}`,
+        });
+
+        res.status(200).json({
+            message: nextVisible ? 'Müştəri menyusunda göstərilir' : 'Müştəri menyusundan gizlədildi',
+            showInCustomerMenu: nextVisible,
+            product,
+        });
+    } catch (error) {
+        console.error('ToggleCustomerMenu error:', error);
+        res.status(500).json({ error: 'Görünürlük dəyişdirilərkən xəta baş verdi' });
+    }
+});
+
+router.put("/UpdateSetItems/:id", CheckToken, requirePermission('Product', 'edit'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { isSet, setItems } = req.body;
+        const existing = await Product.findById(id);
+        if (!existing) {
+            return res.status(404).json({ error: 'Məhsul tapılmadı' });
+        }
+        const isSetProduct = isSet === true || isSet === 'true';
+        const raw = Array.isArray(setItems) ? setItems : parseJsonField(setItems, []);
+        const normalized = isSetProduct ? normalizeSetItems(raw) : [];
+
+        const product = await Product.findByIdAndUpdate(
+            id,
+            { isSet: isSetProduct, setItems: normalized },
+            { new: true }
+        ).populate('category');
+
+        res.status(200).json({ message: 'Set saxlanıldı', product });
+    } catch (error) {
+        console.error('UpdateSetItems error:', error);
+        res.status(500).json({ error: 'Set saxlanarkən xəta baş verdi' });
+    }
+});
+
+router.put("/UpdateProduct/:id", CheckToken, requirePermission('Product', 'edit'), async (req, res) => {
     const { id } = req.params;
     
     // Log the request for debugging
@@ -180,7 +351,7 @@ router.put("/UpdateProduct/:id", async (req, res) => {
     console.log('Request files:', req.files);
     console.log('Files keys:', req.files ? Object.keys(req.files) : 'No files');
     
-    const { name, price, category, description, freeMinutes, freeMinutesForPS, stockQuantity, purchasePrice, isSet, setItems } = req.body;
+    const { name, price, oldPrice, category, description, freeMinutes, freeMinutesForPS, stockQuantity, purchasePrice, isSet, setItems, ingredients, showInCustomerMenu } = req.body;
     const imageProduct = req.files && req.files.imageProduct;
     let updateProduct = {};
     
@@ -194,34 +365,54 @@ router.put("/UpdateProduct/:id", async (req, res) => {
     console.log('- freeMinutesForPS:', freeMinutesForPS);
     console.log('- imageProduct:', imageProduct);
 
-    if (!name || !price || !category) {
-        return res.status(422).json({ error: "Zəhmət olmasa, ad, qiymət və kateqoriya seçin." });
+    if (!name || !category) {
+        return res.status(422).json({ error: "Zəhmət olmasa, ad və kateqoriya seçin." });
     } else {
+        const existingProduct = await Product.findById(id);
+        if (!existingProduct) {
+            return res.status(404).json({ error: "Məhsul tapılmadı" });
+        }
+
+        const priceError = validateProductPrice({
+            price,
+            showInCustomerMenu,
+            existingVisibleInMenu: existingProduct.showInCustomerMenu,
+        });
+        if (priceError) {
+            return res.status(422).json({ error: priceError });
+        }
+
+        const stockFields = parseStockPayload(req.body);
+        if (
+            stockFields.stockQuantity < (Number(existingProduct.stockQuantity) || 0) &&
+            req.user?.Role !== 'master_admin'
+        ) {
+            return res.status(403).json({ error: 'Stok azaltmaq yalnız Master Admin üçündür' });
+        }
+
         updateProduct.name = name;
-        updateProduct.price = parseFloat(price);
+        updateProduct.price = parsePriceValue(price);
+        updateProduct.oldPrice = oldPrice !== undefined && oldPrice !== '' ? parseFloat(oldPrice) : 0;
         updateProduct.category = category;
         updateProduct.description = description || '';
         updateProduct.freeMinutes = Number(freeMinutes) || 0;
         updateProduct.freeMinutesForPS = freeMinutesForPS || null;
-        
-        // Calculate unit cost
-        const stockQty = Number(stockQuantity) || 0;
-        const purchasePrc = Number(purchasePrice) || 0;
-        updateProduct.stockQuantity = stockQty;
-        updateProduct.purchasePrice = purchasePrc;
-        updateProduct.unitCost = stockQty > 0 && purchasePrc > 0 ? purchasePrc / stockQty : 0;
-        
-        // Parse setItems if provided
+        Object.assign(updateProduct, stockFields);
+        if (showInCustomerMenu !== undefined) {
+            updateProduct.showInCustomerMenu = parseBooleanField(showInCustomerMenu, true);
+        }
+
+        const isSetProduct = isSet === 'true' || isSet === true;
         if (isSet !== undefined) {
-            updateProduct.isSet = isSet === 'true' || isSet === true;
-            if (setItems) {
-                try {
-                    updateProduct.setItems = typeof setItems === 'string' ? JSON.parse(setItems) : setItems;
-                } catch (e) {
-                    console.error('Error parsing setItems:', e);
-                    updateProduct.setItems = [];
-                }
-            }
+            updateProduct.isSet = isSetProduct;
+        }
+        if (setItems !== undefined) {
+            updateProduct.setItems = isSetProduct
+                ? normalizeSetItems(parseJsonField(setItems, []))
+                : [];
+        }
+        if (req.body.ingredients !== undefined) {
+            updateProduct.ingredients = parseJsonField(req.body.ingredients, []);
         }
     }
 
@@ -285,9 +476,12 @@ router.put("/UpdateProduct/:id", async (req, res) => {
             return res.status(404).json({ error: "Məhsul tapılmadı" })
         }
 
-        console.log('Updated product from database:', product);
-        console.log('Product image field:', product.image);
-        console.log('Product imageId field:', product.imageId);
+        await logAudit(req, {
+            action: 'update',
+            resource: 'Product',
+            resourceId: product._id,
+            summary: `Məhsul yeniləndi: ${product.name}`,
+        });
 
         res.status(200).json({ message: "Məhsul yeniləndi", product })
 
@@ -297,7 +491,7 @@ router.put("/UpdateProduct/:id", async (req, res) => {
     }
 })
 
-router.delete("/DeleteProduct/:id", async (req, res) => {
+router.delete("/DeleteProduct/:id", CheckToken, requireRole('master_admin'), async (req, res) => {
     const { id } = req.params;
     try {
 
@@ -316,6 +510,13 @@ router.delete("/DeleteProduct/:id", async (req, res) => {
         if (!product) {
             return res.status(404).json({ error: "Məhsul tapılmadı" })
         }
+
+        await logAudit(req, {
+            action: 'delete',
+            resource: 'Product',
+            resourceId: product._id,
+            summary: `Məhsul silindi: ${productImg.name}`,
+        });
 
         res.status(200).json({ message: "Məhsul silindi", product })
 
@@ -390,6 +591,28 @@ router.put('/UpdateTable/:id', async (req, res) => {
         res.status(200).json({ message: "Masa yeniləndi", table });
     } catch (error) {
         res.status(500).json({ error: "Masa yenilənərkən xəta baş verdi" });
+    }
+});
+
+router.patch('/:id/sales-cost', CheckToken, requireRole('master_admin'), async (req, res) => {
+    try {
+        const { salesCost } = req.body;
+        const product = await Product.findByIdAndUpdate(
+            req.params.id,
+            { salesCost: Number(salesCost) || 0 },
+            { new: true }
+        ).select('name salesCost isSet');
+
+        if (!product) {
+            return res.status(404).json({ error: 'Məhsul tapılmadı' });
+        }
+
+        res.json({
+            message: 'Maya dəyəri yeniləndi',
+            product,
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Maya dəyəri yenilənərkən xəta baş verdi' });
     }
 });
 

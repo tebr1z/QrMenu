@@ -1,25 +1,40 @@
-import React, { useContext, useState, useEffect, useRef } from 'react'
+import React, { useContext, useState, useEffect, useRef, useMemo } from 'react'
 import { ContextAdmin } from '../../context/AdminContext'
 import { ContextUser } from '../../context/CheckUserContext'
 import { toast } from 'react-toastify'
+import { UNIT_LABELS, calcSetItemDeduction, formatWarehouseStock, simulateAfterDeduct, getPackSizeGrams } from '../../utils/stockUnits'
 
 const ProductModal = ({ isOpen, onClose, product }) => {
-    const { addProductFunc, updateProductFunc, categories, products, productLoading } = useContext(ContextAdmin)
-    const { hasJwtToken } = useContext(ContextUser)
+    const { addProductFunc, updateProductFunc, getProductsFunc, categories, products, productLoading } = useContext(ContextAdmin)
+    const { hasJwtToken, apiClient } = useContext(ContextUser)
+    const [savingSetItems, setSavingSetItems] = useState(false)
     
     const [formData, setFormData] = useState({
         name: '',
         description: '',
         price: '',
+        oldPrice: '',
         freeMinutes: '',
         freeMinutesForPS: '',
         category: '',
         image: null,
         stockQuantity: '',
+        stockUnit: 'piece',
+        portionSize: '',
+        portionUnit: 'g',
+        lowStockThreshold: '5',
         purchasePrice: '',
+        showInCustomerMenu: true,
         isSet: false,
-        setItems: []
+        setItems: [],
+        ingredients: []
     })
+    
+    const [setSection, setSetSection] = useState('qr')
+    const [selectedLinkedProductForSet, setSelectedLinkedProductForSet] = useState('')
+    const [selectedIngredientProduct, setSelectedIngredientProduct] = useState('')
+    const [selectedIngredientAmount, setSelectedIngredientAmount] = useState(1)
+    const [selectedIngredientUnit, setSelectedIngredientUnit] = useState('piece')
     
     const [imagePreview, setImagePreview] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -27,6 +42,85 @@ const ProductModal = ({ isOpen, onClose, product }) => {
     const descriptionRef = useRef(null)
     const [selectedProductForSet, setSelectedProductForSet] = useState('')
     const [selectedQuantityForSet, setSelectedQuantityForSet] = useState(1)
+    const [setDeductAmount, setSetDeductAmount] = useState('100')
+    const [setDeductUnit, setSetDeductUnit] = useState('g')
+
+    const linkedProductForSetPreview = useMemo(() => {
+        if (!selectedLinkedProductForSet) return null;
+        return products.find((p) => String(p._id) === String(selectedLinkedProductForSet)) || null;
+    }, [selectedLinkedProductForSet, products]);
+
+    const qrSetItems = useMemo(
+        () => formData.setItems.filter((i) => (i.section || 'qr') === 'qr'),
+        [formData.setItems]
+    );
+
+    const qrItemsPendingAnbar = useMemo(() => {
+        const configured = new Set(
+            formData.setItems
+                .filter((i) => i.section === 'internal')
+                .map((i) => String(i.linkedProductId || i.productId))
+        );
+        return qrSetItems.filter((q) => !configured.has(String(q.productId)));
+    }, [formData.setItems, qrSetItems]);
+
+    const previewSetDeduction = useMemo(() => {
+        if (setSection !== 'internal' || !linkedProductForSetPreview) return null;
+        const draftItem = {
+            deductAmount: parseFloat(setDeductAmount) || 0,
+            deductUnit: setDeductUnit,
+        };
+        return calcSetItemDeduction(draftItem, linkedProductForSetPreview);
+    }, [setSection, linkedProductForSetPreview, setDeductAmount, setDeductUnit]);
+
+    const previewAfterSale = useMemo(() => {
+        if (!previewSetDeduction || !linkedProductForSetPreview) return null;
+        if (previewSetDeduction.amount <= 0) return null;
+        return simulateAfterDeduct(
+            linkedProductForSetPreview,
+            previewSetDeduction.amount,
+            previewSetDeduction.unit
+        );
+    }, [previewSetDeduction, linkedProductForSetPreview]);
+
+    const normalizeSetItemsForSubmit = (items) => (items || []).map((item) => {
+        const productId = item.productId?._id || item.productId;
+        const linkedProductId = item.linkedProductId?._id || item.linkedProductId;
+        const section = item.section === 'internal' ? 'internal' : 'qr';
+        const base = {
+            productId: String(productId),
+            quantity: Math.max(1, Number(item.quantity) || 1),
+            section,
+        };
+        if (section === 'internal') {
+            return {
+                ...base,
+                linkedProductId: String(linkedProductId || productId),
+                deductAmount: Number(item.deductAmount) || 0,
+                deductUnit: item.deductUnit || 'g',
+            };
+        }
+        return base;
+    }).filter((i) => i.productId);
+
+    const persistSetItems = async (nextSetItems, isSet = true) => {
+        if (!product?._id) return false;
+        try {
+            setSavingSetItems(true);
+            await apiClient.put(`/Product/UpdateSetItems/${product._id}`, {
+                isSet,
+                setItems: normalizeSetItemsForSubmit(nextSetItems),
+            });
+            await getProductsFunc();
+            return true;
+        } catch (err) {
+            console.error('Set saxlanmadı:', err);
+            toast.error(err.response?.data?.error || 'Set saxlanmadı');
+            return false;
+        } finally {
+            setSavingSetItems(false);
+        }
+    };
     
     // Reset form when modal opens/closes or product changes
     useEffect(() => {
@@ -37,14 +131,26 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                     name: product.name || '',
                     description: product.description || '',
                     price: product.price || '',
+                    oldPrice: product.oldPrice ?? '',
                     freeMinutes: product.freeMinutes || '',
                     freeMinutesForPS: product.freeMinutesForPS || '',
                     category: product.category?._id || product.category || '',
                     image: null,
-                    stockQuantity: product.stockQuantity || '',
+                    stockQuantity: product.stockQuantity ?? '',
+                    stockUnit: product.stockUnit || 'piece',
+                    portionSize: product.portionSize || '',
+                    portionUnit: product.portionUnit || 'g',
+                    lowStockThreshold: product.lowStockThreshold ?? 5,
                     purchasePrice: product.purchasePrice || '',
+                    showInCustomerMenu: product.showInCustomerMenu !== false,
                     isSet: product.isSet || false,
-                    setItems: product.setItems || []
+                    setItems: (product.setItems || []).map((item) => ({
+                        ...item,
+                        productId: item.productId?._id || item.productId,
+                        linkedProductId: item.linkedProductId?._id || item.linkedProductId,
+                        section: item.section || 'qr',
+                    })),
+                    ingredients: product.ingredients || []
                 })
                 setImagePreview(product.image || '')
                 
@@ -60,14 +166,21 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                     name: '',
                     description: '',
                     price: '',
+                    oldPrice: '',
                     freeMinutes: '',
                     freeMinutesForPS: '',
                     category: '',
                     image: null,
                     stockQuantity: '',
+                    stockUnit: 'piece',
+                    portionSize: '',
+                    portionUnit: 'g',
+                    lowStockThreshold: '5',
                     purchasePrice: '',
+                    showInCustomerMenu: true,
                     isSet: false,
-                    setItems: []
+                    setItems: [],
+                    ingredients: []
                 })
                 setImagePreview('')
                 
@@ -193,8 +306,19 @@ const ProductModal = ({ isOpen, onClose, product }) => {
             return
         }
         
-        if (!formData.price || parseFloat(formData.price) <= 0) {
+        const priceNum = (formData.price === '' || formData.price === null)
+            ? (formData.showInCustomerMenu ? NaN : 0)
+            : parseFloat(formData.price)
+        if (Number.isNaN(priceNum)) {
             toast.error('Düzgün qiymət daxil edin')
+            return
+        }
+        if (priceNum < 0) {
+            toast.error('Qiymət mənfi ola bilməz')
+            return
+        }
+        if (formData.showInCustomerMenu && priceNum <= 0) {
+            toast.error('Menyuda görünən məhsulun qiyməti 0 ola bilməz')
             return
         }
         
@@ -209,14 +333,21 @@ const ProductModal = ({ isOpen, onClose, product }) => {
             const submitData = new FormData()
             submitData.append('name', formData.name.trim())
             submitData.append('description', cleanHtmlContent(formData.description))
-            submitData.append('price', parseFloat(formData.price))
+            submitData.append('price', priceNum)
+            submitData.append('oldPrice', formData.oldPrice !== '' ? parseFloat(formData.oldPrice) : 0)
             submitData.append('freeMinutes', parseInt(formData.freeMinutes) || 0)
             submitData.append('freeMinutesForPS', formData.freeMinutesForPS || '')
             submitData.append('category', formData.category)
-            submitData.append('stockQuantity', parseInt(formData.stockQuantity) || 0)
+            submitData.append('stockQuantity', parseFloat(formData.stockQuantity) || 0)
+            submitData.append('stockUnit', formData.stockUnit || 'piece')
+            submitData.append('portionSize', parseFloat(formData.portionSize) || 0)
+            submitData.append('portionUnit', formData.portionUnit || 'g')
+            submitData.append('lowStockThreshold', parseFloat(formData.lowStockThreshold) || 5)
             submitData.append('purchasePrice', parseFloat(formData.purchasePrice) || 0)
-            submitData.append('isSet', formData.isSet)
-            submitData.append('setItems', JSON.stringify(formData.setItems))
+            submitData.append('showInCustomerMenu', formData.showInCustomerMenu ? 'true' : 'false')
+            submitData.append('isSet', formData.isSet ? 'true' : 'false')
+            submitData.append('setItems', JSON.stringify(normalizeSetItemsForSubmit(formData.setItems)))
+            submitData.append('ingredients', JSON.stringify(formData.ingredients))
             
             if (formData.image) {
                 console.log('Adding image to FormData:', formData.image);
@@ -234,17 +365,11 @@ const ProductModal = ({ isOpen, onClose, product }) => {
             }
             
             if (product) {
-                // Update existing product
-                const updateResult = await updateProductFunc(product._id, submitData)
-                console.log('Update result:', updateResult);
-                toast.success('Məhsul uğurla yeniləndi')
-        } else {
-                // Add new product
-                const addResult = await addProductFunc(submitData)
-                console.log('Add result:', addResult);
-                toast.success('Məhsul uğurla əlavə edildi')
+                await updateProductFunc(product._id, submitData)
+            } else {
+                await addProductFunc(submitData)
             }
-            
+            await getProductsFunc()
             onClose()
         } catch (error) {
             console.error('Submit error:', error)
@@ -342,11 +467,11 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                 </select>
                     </div>
                     
-                    {/* Price and Free Minutes */}
+                    {/* Qiymət, Köhnə qiymət (indirimli), Pulsuz dəqiqə */}
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Qiymət (₼) *
+                                Qiymət (yeni / indirimli, ₼) {formData.showInCustomerMenu ? '*' : ''}
                             </label>
                             <input
                                 type="number"
@@ -358,8 +483,28 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                                 placeholder="0.00"
                                 disabled={isSubmitting}
-                                required
+                                required={formData.showInCustomerMenu}
                             />
+                            {!formData.showInCustomerMenu && (
+                                <p className="text-xs text-gray-500 mt-1">Menyuda gizli məhsul üçün 0.00 ola bilər</p>
+                            )}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Köhnə qiymət (indirimli göstərmək üçün, ₼)
+                            </label>
+                            <input
+                                type="number"
+                                name="oldPrice"
+                                value={formData.oldPrice}
+                                onChange={handleInputChange}
+                                step="0.01"
+                                min="0"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                placeholder="Boş saxla"
+                                disabled={isSubmitting}
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Doldursanız: köhnə qiymət üstü xətt qara, yeni qiymət qırmızı.</p>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -402,44 +547,84 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                         </div>
                     )}
                     
-                    {/* Stock Information */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Stok Miqdarı (ədəd)
-                            </label>
-                            <input
-                                type="number"
-                                name="stockQuantity"
-                                value={formData.stockQuantity}
-                                onChange={handleInputChange}
-                                min="0"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                                placeholder="Məs: 100"
-                                disabled={isSubmitting}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Alınma Qiyməti (₼)
-                            </label>
-                            <input
-                                type="number"
-                                name="purchasePrice"
-                                value={formData.purchasePrice}
-                                onChange={handleInputChange}
-                                step="0.01"
-                                min="0"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                                placeholder="Məs: 200"
-                                disabled={isSubmitting}
-                            />
-                            {formData.stockQuantity && formData.purchasePrice && (
-                                <p className="text-xs text-gray-500 mt-1">
-                                    1 ədədin qiyməti: {(parseFloat(formData.purchasePrice) / parseInt(formData.stockQuantity)).toFixed(2)}₼
-                                </p>
+                    {/* Ingredients (tost → kolbasa, ketçup və s.) */}
+                    {!formData.isSet && (
+                        <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
+                            <h3 className="font-semibold text-gray-800 mb-2">İçindəki məhsullar (resept)</h3>
+                            <p className="text-xs text-gray-600 mb-3">Satış olanda bu məhsullar avtomatik anbardan çıxılır (məs: tost → kolbasa, ketçup, çörək)</p>
+                            <div className="flex flex-wrap gap-2 mb-3">
+                                <select
+                                    value={selectedIngredientProduct}
+                                    onChange={(e) => setSelectedIngredientProduct(e.target.value)}
+                                    className="flex-1 min-w-[140px] px-3 py-2 border rounded-lg"
+                                    disabled={isSubmitting}
+                                >
+                                    <option value="">Məhsul seçin</option>
+                                    {products.filter(p => p._id !== product?._id && !p.isSet).map(p => (
+                                        <option key={p._id} value={p._id}>{p.name}</option>
+                                    ))}
+                                </select>
+                                <input type="number" min="0.001" step="0.001" value={selectedIngredientAmount}
+                                    onChange={(e) => setSelectedIngredientAmount(parseFloat(e.target.value) || 1)}
+                                    className="w-20 px-2 py-2 border rounded-lg" />
+                                <select value={selectedIngredientUnit} onChange={(e) => setSelectedIngredientUnit(e.target.value)}
+                                    className="px-2 py-2 border rounded-lg">
+                                    <option value="piece">ədəd</option>
+                                    <option value="kg">kq</option>
+                                    <option value="g">qr</option>
+                                </select>
+                                <button type="button" className="px-3 py-2 bg-orange-500 text-white rounded-lg text-sm font-semibold"
+                                    onClick={() => {
+                                        if (!selectedIngredientProduct) return;
+                                        if (formData.ingredients.find(i => i.productId === selectedIngredientProduct)) {
+                                            toast.error('Bu məhsul artıq əlavə edilib');
+                                            return;
+                                        }
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            ingredients: [...prev.ingredients, {
+                                                productId: selectedIngredientProduct,
+                                                amount: selectedIngredientAmount,
+                                                unit: selectedIngredientUnit,
+                                            }],
+                                        }));
+                                    }}>Əlavə et</button>
+                            </div>
+                            {formData.ingredients.length > 0 && (
+                                <ul className="space-y-1">
+                                    {formData.ingredients.map((ing, idx) => {
+                                        const p = products.find(x => x._id === ing.productId);
+                                        return (
+                                            <li key={idx} className="flex justify-between text-sm bg-white p-2 rounded border">
+                                                <span>{p?.name || '—'} — {ing.amount} {UNIT_LABELS[ing.unit]}</span>
+                                                <button type="button" className="text-red-500" onClick={() => setFormData(prev => ({
+                                                    ...prev, ingredients: prev.ingredients.filter((_, i) => i !== idx)
+                                                }))}><i className="bi bi-trash" /></button>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
                             )}
                         </div>
+                    )}
+                    
+                    {/* Müştəri menyusu görünürlüyü */}
+                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                        <label className="flex items-start gap-3 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={formData.showInCustomerMenu}
+                                onChange={(e) => setFormData(prev => ({ ...prev, showInCustomerMenu: e.target.checked }))}
+                                className="w-4 h-4 mt-0.5 text-orange-500 border-gray-300 rounded focus:ring-orange-500"
+                                disabled={isSubmitting}
+                            />
+                            <div>
+                                <span className="text-sm font-medium text-gray-800">Müştəri menyusunda göstər</span>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Söndürsəniz məhsul QR menyuda görünməz, amma kassa, stok və setlərdə işləməyə davam edir.
+                                </p>
+                            </div>
+                        </label>
                     </div>
                     
                     {/* Set Product */}
@@ -456,92 +641,260 @@ const ProductModal = ({ isOpen, onClose, product }) => {
                         </label>
                         
                         {formData.isSet && (
-                            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <div className="mb-4">
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Set-ə məhsul əlavə et
-                                    </label>
-                                    <div className="flex gap-2">
+                            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-4">
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={() => setSetSection('qr')}
+                                        className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${setSection === 'qr' ? 'bg-orange-500 text-white' : 'bg-white border'}`}>
+                                        1-ci hissə (QR)
+                                    </button>
+                                    <button type="button" onClick={() => setSetSection('internal')}
+                                        className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${setSection === 'internal' ? 'bg-blue-600 text-white' : 'bg-white border'}`}>
+                                        Anbar hissəsi
+                                    </button>
+                                </div>
+                                <p className="text-xs text-gray-600">
+                                    {setSection === 'qr'
+                                        ? 'Əvvəl menyuda görünəcək məhsulları əlavə edin.'
+                                        : '1-ci hissədə əlavə etdiyiniz məhsul üçün qr/kq miqdarı yazın — yenidən məhsul seçməyə ehtiyac yoxdur.'}
+                                </p>
+
+                                {setSection === 'qr' && (
+                                    <div className="flex flex-wrap gap-2 items-end">
                                         <select
                                             value={selectedProductForSet}
                                             onChange={(e) => setSelectedProductForSet(e.target.value)}
-                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                            className="flex-1 min-w-[140px] px-3 py-2 border rounded-lg text-sm"
                                             disabled={isSubmitting}
                                         >
-                                            <option value="">Məhsul seçin</option>
+                                            <option value="">Menyuda görünən ad</option>
                                             {products.filter(p => p._id !== product?._id && !p.isSet).map(p => (
-                                                <option key={p._id} value={p._id}>
-                                                    {p.name}
-                                                </option>
+                                                <option key={p._id} value={p._id}>{p.name}</option>
                                             ))}
                                         </select>
                                         <input
                                             type="number"
                                             min="1"
                                             value={selectedQuantityForSet}
-                                            onChange={(e) => setSelectedQuantityForSet(parseInt(e.target.value) || 1)}
-                                            className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                                            placeholder="Miqdar"
-                                            disabled={isSubmitting}
+                                            onChange={(e) => setSelectedQuantityForSet(parseInt(e.target.value, 10) || 1)}
+                                            className="w-16 px-2 py-2 border rounded-lg text-sm"
+                                            title="Say (göstərim)"
                                         />
                                         <button
                                             type="button"
-                                            onClick={() => {
-                                                if (selectedProductForSet) {
-                                                    const product = products.find(p => p._id === selectedProductForSet);
-                                                    if (product && !formData.setItems.find(item => item.productId === selectedProductForSet)) {
-                                                        setFormData(prev => ({
-                                                            ...prev,
-                                                            setItems: [...prev.setItems, {
-                                                                productId: selectedProductForSet,
-                                                                quantity: selectedQuantityForSet
-                                                            }]
-                                                        }));
-                                                        setSelectedProductForSet('');
-                                                        setSelectedQuantityForSet(1);
-                                                    } else {
-                                                        toast.warning('Bu məhsul artıq set-ə əlavə edilib');
-                                                    }
+                                            className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+                                            disabled={isSubmitting || !selectedProductForSet}
+                                            onClick={async () => {
+                                                if (!selectedProductForSet) return;
+                                                const newItem = {
+                                                    productId: selectedProductForSet,
+                                                    quantity: selectedQuantityForSet,
+                                                    section: 'qr',
+                                                };
+                                                const nextItems = [...formData.setItems, newItem];
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    isSet: true,
+                                                    setItems: nextItems,
+                                                }));
+                                                setSelectedProductForSet('');
+                                                setSelectedQuantityForSet(1);
+                                                if (product?._id) {
+                                                    const ok = await persistSetItems(nextItems, true);
+                                                    if (ok) toast.success('QR hissə saxlanıldı');
+                                                } else {
+                                                    toast.info('Məhsulu ilk dəfə «Yenilə/Əlavə et» ilə saxlayın');
                                                 }
                                             }}
-                                            className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
-                                            disabled={isSubmitting || !selectedProductForSet}
                                         >
                                             Əlavə et
                                         </button>
                                     </div>
-                                </div>
-                                
-                                {formData.setItems.length > 0 && (
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Set məhsulları:
-                                        </label>
-                                        <div className="space-y-2">
-                                            {formData.setItems.map((item, index) => {
-                                                const product = products.find(p => p._id === item.productId);
-                                                return (
-                                                    <div key={index} className="flex items-center justify-between p-2 bg-white rounded border border-gray-200">
-                                                        <span className="text-sm text-gray-700">
-                                                            {product?.name || 'Məhsul tapılmadı'} - {item.quantity} ədəd
-                                                        </span>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setFormData(prev => ({
-                                                                    ...prev,
-                                                                    setItems: prev.setItems.filter((_, i) => i !== index)
-                                                                }));
+                                )}
+
+                                {setSection === 'internal' && (
+                                    <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg space-y-3">
+                                        <div className="text-sm font-semibold text-blue-900">Anbar — 1 set satışında çıxacaq</div>
+                                        {qrSetItems.length === 0 ? (
+                                            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                                                Əvvəl <strong>1-ci hissə (QR)</strong> tabında məhsul əlavə edin.
+                                            </p>
+                                        ) : (
+                                            <>
+                                                <div className="flex flex-wrap gap-2 items-end">
+                                                    <div className="flex-1 min-w-[140px]">
+                                                        <label className="text-[10px] text-gray-600 block mb-1">1-ci hissədən məhsul</label>
+                                                        <select
+                                                            value={selectedLinkedProductForSet}
+                                                            onChange={(e) => {
+                                                                const id = e.target.value;
+                                                                setSelectedLinkedProductForSet(id);
+                                                                const lp = products.find((p) => String(p._id) === String(id));
+                                                                if (lp?.stockUnit === 'kg') setSetDeductUnit('kg');
+                                                                else setSetDeductUnit('g');
                                                             }}
-                                                            className="text-red-500 hover:text-red-700"
+                                                            className="w-full px-3 py-2 border rounded-lg text-sm"
                                                             disabled={isSubmitting}
                                                         >
-                                                            <i className="bi bi-trash"></i>
-                                                        </button>
+                                                            <option value="">QR-də əlavə etdiyiniz məhsul</option>
+                                                            {qrItemsPendingAnbar.map((item) => {
+                                                                const p = products.find(x => String(x._id) === String(item.productId));
+                                                                return (
+                                                                    <option key={item.productId} value={item.productId}>
+                                                                        {p?.name || item.productId}
+                                                                    </option>
+                                                                );
+                                                            })}
+                                                        </select>
+                                                        {qrItemsPendingAnbar.length === 0 && qrSetItems.length > 0 && (
+                                                            <p className="text-[10px] text-emerald-700 mt-1">Bütün QR məhsulları üçün anbar qaydası var</p>
+                                                        )}
                                                     </div>
-                                                );
-                                            })}
+                                                    <div className="w-24">
+                                                        <label className="text-[10px] text-gray-600 block mb-1">1 setdə çıxan</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.001"
+                                                            value={setDeductAmount}
+                                                            onChange={(e) => setSetDeductAmount(e.target.value)}
+                                                            className="w-full px-2 py-2 border rounded-lg text-sm"
+                                                            placeholder="100"
+                                                        />
+                                                    </div>
+                                                    <div className="w-20">
+                                                        <label className="text-[10px] text-gray-600 block mb-1">Vahid</label>
+                                                        <select
+                                                            value={setDeductUnit}
+                                                            onChange={(e) => setSetDeductUnit(e.target.value)}
+                                                            className="w-full px-2 py-2 border rounded-lg text-sm"
+                                                        >
+                                                            <option value="g">qr</option>
+                                                            <option value="kg">kq</option>
+                                                        </select>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+                                                        disabled={
+                                                            isSubmitting
+                                                            || !selectedLinkedProductForSet
+                                                            || !(parseFloat(setDeductAmount) > 0)
+                                                        }
+                                                        onClick={async () => {
+                                                            if (!selectedLinkedProductForSet || !(parseFloat(setDeductAmount) > 0)) {
+                                                                toast.error('Məhsul və miqdar daxil edin');
+                                                                return;
+                                                            }
+                                                            const newItem = {
+                                                                productId: selectedLinkedProductForSet,
+                                                                linkedProductId: selectedLinkedProductForSet,
+                                                                quantity: 1,
+                                                                section: 'internal',
+                                                                deductAmount: parseFloat(setDeductAmount),
+                                                                deductUnit: setDeductUnit,
+                                                            };
+                                                            const nextItems = [...formData.setItems, newItem];
+                                                            setFormData(prev => ({
+                                                                ...prev,
+                                                                isSet: true,
+                                                                setItems: nextItems,
+                                                            }));
+                                                            setSelectedLinkedProductForSet('');
+                                                            setSetDeductAmount('100');
+                                                            setSetDeductUnit('g');
+                                                            if (product?._id) {
+                                                                const ok = await persistSetItems(nextItems, true);
+                                                                if (ok) toast.success('Anbar qaydası saxlanıldı');
+                                                            } else {
+                                                                toast.info('Məhsulu ilk dəfə «Yenilə/Əlavə et» ilə saxlayın');
+                                                            }
+                                                        }}
+                                                    >
+                                                        Əlavə et
+                                                    </button>
+                                                </div>
+                                                {linkedProductForSetPreview && (
+                                                    <div className="text-xs space-y-1 border-t border-blue-100 pt-2">
+                                                        <div className="text-gray-600">
+                                                            Anbar: <strong>{formatWarehouseStock(linkedProductForSetPreview).text}</strong>
+                                                            {getPackSizeGrams(linkedProductForSetPreview) > 0 && (
+                                                                <span className="text-gray-500">
+                                                                    {' '}(1 paket = {linkedProductForSetPreview.portionSize} qr)
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {previewSetDeduction?.amount > 0 && (
+                                                            <div className="text-emerald-800 font-semibold">
+                                                                1 set satışı = {previewSetDeduction.label}
+                                                            </div>
+                                                        )}
+                                                        {previewAfterSale && (
+                                                            <div className="text-blue-800">
+                                                                Satışdan sonra: {previewAfterSale.text}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+
+                                {formData.setItems.length > 0 && (
+                                    <div className="space-y-2 border-t pt-3">
+                                        <div className="text-xs font-semibold text-gray-600 flex items-center gap-2">
+                                            Set tərkibi
+                                            {savingSetItems && <span className="text-orange-500">Saxlanır...</span>}
+                                            {product?._id && !savingSetItems && (
+                                                <span className="text-emerald-600">✓ backend</span>
+                                            )}
                                         </div>
+                                        {formData.setItems.map((item, index) => {
+                                            const p = products.find(x => String(x._id) === String(item.productId));
+                                            const linked = products.find(x => String(x._id) === String(item.linkedProductId || item.productId));
+                                            const isQr = (item.section || 'qr') === 'qr';
+                                            const deduct = !isQr ? calcSetItemDeduction(item, linked) : null;
+                                            const anbarForQr = isQr
+                                                ? formData.setItems.find(
+                                                    (i) => i.section === 'internal'
+                                                        && String(i.linkedProductId || i.productId) === String(item.productId)
+                                                )
+                                                : null;
+                                            const anbarDeduct = anbarForQr ? calcSetItemDeduction(anbarForQr, linked || p) : null;
+                                            return (
+                                                <div key={index} className={`flex items-center justify-between p-2 rounded border text-sm ${isQr ? 'bg-orange-50' : 'bg-blue-50'}`}>
+                                                    <span>
+                                                        [{isQr ? 'QR' : 'Anbar'}] {p?.name || linked?.name || '—'}
+                                                        {isQr
+                                                            ? ` · ${item.quantity || 1} ədəd`
+                                                            : ` · ${deduct?.label || `${item.deductAmount} ${UNIT_LABELS[item.deductUnit || 'g']}/set`}`}
+                                                        {isQr && !anbarForQr && (
+                                                            <span className="text-amber-600 text-xs ml-1">· anbar qaydası yoxdur</span>
+                                                        )}
+                                                        {isQr && anbarDeduct && (
+                                                            <span className="text-blue-700 text-xs ml-1">· anbar: {anbarDeduct.label}</span>
+                                                        )}
+                                                        {!isQr && linked && (
+                                                            <span className="text-gray-500 text-xs ml-1">
+                                                                · stok: {formatWarehouseStock(linked).text}
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                    <button type="button" onClick={async () => {
+                                                        const removed = formData.setItems[index];
+                                                        const removedId = String(removed?.productId || '');
+                                                        const nextItems = formData.setItems.filter((_, i) => i !== index).filter((item) => {
+                                                            if (item.section !== 'internal') return true;
+                                                            return String(item.linkedProductId || item.productId) !== removedId;
+                                                        });
+                                                        setFormData(prev => ({ ...prev, setItems: nextItems }));
+                                                        if (product?._id) {
+                                                            await persistSetItems(nextItems, formData.isSet);
+                                                        }
+                                                    }} className="text-red-500"><i className="bi bi-trash" /></button>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>

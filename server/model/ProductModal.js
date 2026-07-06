@@ -15,6 +15,10 @@ const productSchema =  mongoose.Schema({
         type: Number,
         required: true,
     },
+    oldPrice: {
+        type: Number,
+        default: 0,
+    },
     category: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Category",
@@ -46,6 +50,24 @@ const productSchema =  mongoose.Schema({
         type: Number,
         default: 0,
     },
+    stockUnit: {
+        type: String,
+        enum: ['piece', 'kg', 'g'],
+        default: 'piece',
+    },
+    portionSize: {
+        type: Number,
+        default: 0,
+    },
+    portionUnit: {
+        type: String,
+        enum: ['piece', 'kg', 'g'],
+        default: 'piece',
+    },
+    lowStockThreshold: {
+        type: Number,
+        default: 5,
+    },
     purchasePrice: {
         type: Number,
         default: 0,
@@ -53,6 +75,15 @@ const productSchema =  mongoose.Schema({
     unitCost: {
         type: Number,
         default: 0,
+    },
+    salesCost: {
+        type: Number,
+        default: 0,
+    },
+    /** false = yalnız admin/kassa/stok; müştəri QR menyusunda görünmür */
+    showInCustomerMenu: {
+        type: Boolean,
+        default: true,
     },
     isSet: {
         type: Boolean,
@@ -66,7 +97,61 @@ const productSchema =  mongoose.Schema({
         quantity: {
             type: Number,
             default: 1,
-        }
+        },
+        portions: {
+            type: Number,
+            default: 1,
+        },
+        /** Set anbar: 1 satışda çıxan miqdar */
+        deductAmount: { type: Number, default: 0 },
+        deductUnit: {
+            type: String,
+            enum: ['piece', 'kg', 'g'],
+            default: 'g',
+        },
+        /** @deprecated köhnə rejimlər — yalnız köhnə məlumat üçün */
+        stockMode: {
+            type: String,
+            enum: ['portion', 'pack_split', 'fixed_weight'],
+            default: 'portion',
+        },
+        packSize: { type: Number, default: 0 },
+        packUnit: {
+            type: String,
+            enum: ['piece', 'kg', 'g'],
+            default: 'g',
+        },
+        splitsPerPack: { type: Number, default: 0 },
+        serveAmount: { type: Number, default: 0 },
+        serveUnit: {
+            type: String,
+            enum: ['piece', 'kg', 'g'],
+            default: 'g',
+        },
+        section: {
+            type: String,
+            enum: ['qr', 'internal'],
+            default: 'qr',
+        },
+        linkedProductId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Product",
+        },
+    }],
+    ingredients: [{
+        productId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Product",
+        },
+        amount: {
+            type: Number,
+            default: 1,
+        },
+        unit: {
+            type: String,
+            enum: ['piece', 'kg', 'g'],
+            default: 'piece',
+        },
     }],
     createdAt: { type: Date, default: Date.now },
 });
