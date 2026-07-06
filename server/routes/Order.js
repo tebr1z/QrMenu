@@ -1,6 +1,7 @@
 import express from 'express';
 import Order from '../model/OrderModal.js';
-import Product from '../model/ProductModal.js';
+import Config from '../model/ConfigModal.js';
+import { applyStockDeductionForOrder } from '../utils/stockDeduction.js';
 
 const router = express.Router();
 
@@ -50,86 +51,38 @@ router.post('/AddOrder', async (req, res) => {
         
         const order = new Order(req.body);
         await order.save();
-        
-        // Stokdan düş - optimized with bulk operations (N+1 problem fixed)
-        if (order.selectedMenu && Array.isArray(order.selectedMenu) && order.selectedMenu.length > 0) {
-            // Collect all product IDs first
-            const productIds = order.selectedMenu
-                .map(item => item._id || item.id)
-                .filter(id => id);
-            
-            if (productIds.length > 0) {
-                // Fetch all products in one query (bulk operation)
-                const products = await Product.find({ _id: { $in: productIds } });
-                const productMap = new Map(products.map(p => [p._id.toString(), p]));
-                
-                // Collect all set item product IDs
-                const setProductIds = new Set();
-                products.forEach(product => {
-                    if (product.isSet && product.setItems && product.setItems.length > 0) {
-                        product.setItems.forEach(setItem => {
-                            if (setItem.productId) {
-                                setProductIds.add(setItem.productId.toString());
-                            }
-                        });
+
+        // Kassaya dərhal əlavə et (stokdan əvvəl – ki, həmişə kassaya düşsün)
+        const orderTotal = Number(order.total) || 0;
+        if (orderTotal > 0) {
+            const maxRetries = 3;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    const configBalance = await Config.findOne({ key: 'kassaBalance' }).lean();
+                    const current = configBalance && typeof configBalance.value === 'number' ? configBalance.value : 0;
+                    const newBalance = current + orderTotal;
+                    await Config.findOneAndUpdate(
+                        { key: 'kassaBalance' },
+                        { key: 'kassaBalance', value: newBalance, updatedAt: new Date() },
+                        { upsert: true, new: true }
+                    );
+                    break;
+                } catch (kassaErr) {
+                    if (process.env.NODE_ENV === 'development') {
+                        console.error(`[AddOrder] Kassa yeniləmə cəhdi ${attempt}/${maxRetries}:`, kassaErr);
                     }
-                });
-                
-                // Fetch all set products in one query
-                let setProducts = [];
-                if (setProductIds.size > 0) {
-                    setProducts = await Product.find({ _id: { $in: Array.from(setProductIds) } });
-                }
-                const setProductMap = new Map(setProducts.map(p => [p._id.toString(), p]));
-                
-                // Prepare bulk update operations
-                const bulkOps = [];
-                
-                // Process each ordered item
-                for (const item of order.selectedMenu) {
-                    const productId = item._id || item.id;
-                    if (!productId) continue;
-                    
-                    const product = productMap.get(productId.toString());
-                    if (!product) continue;
-                    
-                    // Handle set products
-                    if (product.isSet && product.setItems && product.setItems.length > 0) {
-                        for (const setItem of product.setItems) {
-                            const setProductId = setItem.productId?.toString();
-                            if (!setProductId) continue;
-                            
-                            const setProduct = setProductMap.get(setProductId);
-                            if (setProduct && setProduct.stockQuantity >= setItem.quantity) {
-                                bulkOps.push({
-                                    updateOne: {
-                                        filter: { _id: setProduct._id },
-                                        update: { $inc: { stockQuantity: -setItem.quantity } }
-                                    }
-                                });
-                            }
-                        }
-                    }
-                    
-                    // Decrement main product stock
-                    if (product.stockQuantity > 0) {
-                        bulkOps.push({
-                            updateOne: {
-                                filter: { _id: product._id },
-                                update: { $inc: { stockQuantity: -1 } }
-                            }
-                        });
-                    }
-                }
-                
-                // Execute all updates in one bulk operation
-                if (bulkOps.length > 0) {
-                    await Product.bulkWrite(bulkOps);
+                    if (attempt === maxRetries) throw kassaErr;
+                    await new Promise(r => setTimeout(r, 100 * attempt));
                 }
             }
         }
         
-        res.status(201).json({ message: 'Sifariş əlavə olundu', order });
+        let lowStockAlerts = [];
+        if (order.selectedMenu && Array.isArray(order.selectedMenu) && order.selectedMenu.length > 0) {
+            lowStockAlerts = await applyStockDeductionForOrder(order.selectedMenu);
+        }
+
+        res.status(201).json({ message: 'Sifariş əlavə olundu', order, lowStockAlerts });
     } catch (error) {
         // Log error for debugging but don't expose details to client
         if (process.env.NODE_ENV === 'development') {
@@ -139,13 +92,27 @@ router.post('/AddOrder', async (req, res) => {
     }
 });
 
-// Sifarişi sil (müvəqqəti funksiya duplicate-ləri silmək üçün)
+// Sifarişi sil – kassadan da həmin sifarişin məbləği çıxılır (Admin/Accounts)
 router.delete('/:id', async (req, res) => {
     try {
-        const order = await Order.findByIdAndDelete(req.params.id);
+        const order = await Order.findById(req.params.id);
         if (!order) {
             return res.status(404).json({ error: 'Sifariş tapılmadı' });
         }
+        const orderTotal = Number(order.total) || 0;
+        await Order.findByIdAndDelete(req.params.id);
+
+        if (orderTotal > 0) {
+            const configBalance = await Config.findOne({ key: 'kassaBalance' }).lean();
+            const current = configBalance && typeof configBalance.value === 'number' ? configBalance.value : 0;
+            const newBalance = Math.max(0, current - orderTotal);
+            await Config.findOneAndUpdate(
+                { key: 'kassaBalance' },
+                { key: 'kassaBalance', value: newBalance, updatedAt: new Date() },
+                { upsert: true, new: true }
+            );
+        }
+
         res.status(200).json({ message: 'Sifariş silindi', order });
     } catch (error) {
         if (process.env.NODE_ENV === 'development') {
