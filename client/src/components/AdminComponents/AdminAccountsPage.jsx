@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useContext, useState, useEffect } from 'react';
+import { createApiClient } from '../../utils/http';
 import { MASTER_ADMIN_PASSWORD } from '../../config/auth';
+import { ContextUser } from '../../context/CheckUserContext';
+import { isMasterAdmin } from '../../config/roles';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API || '/api',
-});
+const apiClient = createApiClient();
 
 const AdminAccountsPage = () => {
+  const { userRole } = useContext(ContextUser);
+  const isMaster = isMasterAdmin(userRole);
   const [orders, setOrders] = useState([]);
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
@@ -14,17 +16,18 @@ const AdminAccountsPage = () => {
   });
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState('');
-  const [masterUnlocked, setMasterUnlocked] = useState(false);
-  const [showMasterModal, setShowMasterModal] = useState(false);
+  const [editUnlocked, setEditUnlocked] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [pendingAction, setPendingAction] = useState(null);
 
   const fetchOrders = async () => {
     try {
       const url = selectedDate
         ? `/order/GetOrders?date=${selectedDate}`
         : '/order/GetOrders';
-      const res = await api.get(url);
+      const res = await apiClient.get(url);
       setOrders(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       setOrders([]);
@@ -66,7 +69,7 @@ const AdminAccountsPage = () => {
     
     setLoading(true);
     try {
-      await api.delete(`/order/${orderId}`);
+      await apiClient.delete(`/order/${orderId}`);
       setNotification('Sifariş silindi');
       await fetchOrders(); // Yenilə
       setTimeout(() => setNotification(''), 3000);
@@ -109,7 +112,7 @@ const AdminAccountsPage = () => {
       });
       
       // Bütün duplicate-ləri sil
-      await Promise.all(toDelete.map(order => api.delete(`/order/${order._id}`)));
+      await Promise.all(toDelete.map(order => apiClient.delete(`/order/${order._id}`)));
       
       setNotification(`${toDelete.length} duplicate sifariş silindi`);
       await fetchOrders(); // Yenilə
@@ -119,18 +122,6 @@ const AdminAccountsPage = () => {
       setTimeout(() => setNotification(''), 3000);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleMasterUnlock = (e) => {
-    e.preventDefault();
-    if (passwordInput === MASTER_ADMIN_PASSWORD) {
-      setMasterUnlocked(true);
-      setShowMasterModal(false);
-      setPasswordInput('');
-      setPasswordError('');
-    } else {
-      setPasswordError('Şifrə yanlışdır');
     }
   };
 
@@ -180,50 +171,85 @@ const AdminAccountsPage = () => {
     }
   };
 
+  const handleUnlock = (e) => {
+    e.preventDefault();
+    if (passwordInput === MASTER_ADMIN_PASSWORD) {
+      setEditUnlocked(true);
+      setShowPasswordModal(false);
+      setPasswordInput('');
+      setPasswordError('');
+      if (pendingAction) {
+        pendingAction();
+        setPendingAction(null);
+      }
+    } else {
+      setPasswordError('Şifrə yanlışdır');
+    }
+  };
+
+  const requireEditUnlock = (action) => {
+    if (editUnlocked) {
+      action();
+      return;
+    }
+    setPendingAction(() => action);
+    setShowPasswordModal(true);
+    setPasswordInput('');
+    setPasswordError('');
+  };
+
+  const openEditUnlockModal = () => {
+    setPendingAction(null);
+    setShowPasswordModal(true);
+    setPasswordInput('');
+    setPasswordError('');
+  };
+
   return (
     <div className="max-w-5xl mx-auto p-4 relative">
-      <h1 className="text-3xl font-bold mb-8 text-gray-800 text-center tracking-tight">Bitmiş sifarişlər</h1>
-
-      {/* Master admin */}
-      <div className="mb-6 flex justify-end">
-        {masterUnlocked ? (
-          <span className="px-4 py-2 rounded-lg bg-green-100 text-green-800 font-semibold flex items-center gap-2">
-            <i className="bi bi-shield-check"></i>
-            Master admin aktiv
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => { setShowMasterModal(true); setPasswordError(''); setPasswordInput(''); }}
-            className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold flex items-center gap-2 transition"
-          >
-            <i className="bi bi-shield-lock"></i>
-            Master admin
-          </button>
-        )}
-      </div>
-
-      {/* Master admin şifrə modal */}
-      {showMasterModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowMasterModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
-            <div className="text-lg font-semibold text-gray-800 mb-2">Master admin</div>
-            <p className="text-sm text-gray-500 mb-4">Bitmiş sifarişi silmək üçün şifrə daxil edin</p>
-            <form onSubmit={handleMasterUnlock}>
+      {isMaster && showPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm bg-gray-900 text-white rounded-2xl shadow-xl p-6 border border-gray-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-gray-800 rounded-full p-2">
+                <i className="bi bi-shield-lock text-orange-400 text-xl"></i>
+              </div>
+              <div>
+                <div className="text-lg font-semibold">Sifariş silmə</div>
+                <div className="text-xs text-gray-400">Bu əməliyyat üçün şifrə daxil edin</div>
+              </div>
+            </div>
+            <form onSubmit={handleUnlock} className="space-y-4">
               <input
                 type="password"
-                value={passwordInput}
-                onChange={e => { setPasswordInput(e.target.value); setPasswordError(''); }}
-                placeholder="Şifrə"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                inputMode="numeric"
                 autoFocus
+                value={passwordInput}
+                onChange={e => {
+                  setPasswordInput(e.target.value);
+                  setPasswordError('');
+                }}
+                placeholder="****"
+                className="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 text-center text-2xl tracking-widest focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
-              {passwordError && <div className="text-sm text-red-500 mt-2">{passwordError}</div>}
-              <div className="flex gap-2 mt-4">
-                <button type="button" onClick={() => setShowMasterModal(false)} className="flex-1 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">
+              {passwordError && <div className="text-sm text-red-400">{passwordError}</div>}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setPendingAction(null);
+                    setPasswordInput('');
+                    setPasswordError('');
+                  }}
+                  className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm font-semibold"
+                >
                   Ləğv et
                 </button>
-                <button type="submit" className="flex-1 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold">
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-sm font-semibold"
+                >
                   Təsdiq et
                 </button>
               </div>
@@ -231,9 +257,10 @@ const AdminAccountsPage = () => {
           </div>
         </div>
       )}
-      
-      {/* Notification */}
-          {notification && (
+
+      <h1 className="text-3xl font-bold mb-8 text-gray-800 text-center tracking-tight">Bitmiş sifarişlər</h1>
+
+      {notification && (
             <div className={`mb-4 px-4 py-3 rounded-lg flex items-center gap-2 ${
               notification.includes('xəta') 
                 ? 'bg-red-100 border border-red-400 text-red-700' 
@@ -256,10 +283,26 @@ const AdminAccountsPage = () => {
           />
         </div>
         <div className="flex items-center gap-4">
-          {/* Duplicate silmə - yalnız şifrə daxil edildikdən sonra görünür */}
-          {masterUnlocked && findDuplicates().length > 0 && (
+          {isMaster && (
+            editUnlocked ? (
+              <span className="px-3 py-2 rounded-lg bg-green-100 text-green-800 text-sm font-semibold flex items-center gap-2">
+                <i className="bi bi-shield-check"></i>
+                Silmə aktiv
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={openEditUnlockModal}
+                className="px-4 py-2 rounded-lg bg-gray-900 hover:bg-black text-white text-sm font-semibold flex items-center gap-2"
+              >
+                <i className="bi bi-key"></i>
+                Silmə üçün şifrə
+              </button>
+            )
+          )}
+          {isMaster && editUnlocked && findDuplicates().length > 0 && (
             <button
-              onClick={handleDeleteAllDuplicates}
+              onClick={() => requireEditUnlock(handleDeleteAllDuplicates)}
               disabled={loading}
               className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               title={`${findDuplicates().length} duplicate sifariş tapıldı`}
@@ -317,10 +360,10 @@ const AdminAccountsPage = () => {
             </div>
             <div className="text-2xl font-bold text-green-800 mt-4 text-center">Ümumi: {order.total.toFixed(2)}₼</div>
             {/* Bitmiş sifarişi sil - yalnız şifrə daxil edildikdən sonra görünür */}
-            {masterUnlocked && (
+            {isMaster && editUnlocked && (
               <button
                 type="button"
-                onClick={() => handleDeleteOrder(order._id)}
+                onClick={() => requireEditUnlock(() => handleDeleteOrder(order._id))}
                 disabled={loading}
                 className="mt-3 w-full py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 title="Bu bitmiş sifarişi sil"

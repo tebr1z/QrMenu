@@ -1,12 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { createApiClient, fetchAllSettled } from '../../utils/http';
 import { MASTER_ADMIN_PASSWORD } from '../../config/auth';
+import { ContextUser } from '../../context/CheckUserContext';
+import { isMasterAdmin } from '../../config/roles';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API || '/api',
-});
+const apiClient = createApiClient();
+
+function isOperationalExpense(exp) {
+  if (!exp) return false;
+  if (exp.kind === 'employee_salary') return false;
+  if (String(exp.name || '').startsWith('İşçi maaşı:')) return false;
+  return true;
+}
 
 const AdminFinancePage = () => {
+  const { userRole } = useContext(ContextUser);
+  const isMaster = isMasterAdmin(userRole);
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
     return today.toISOString().slice(0, 10);
@@ -17,22 +26,25 @@ const AdminFinancePage = () => {
   const [expensesMonth, setExpensesMonth] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState('');
+  const [editUnlocked, setEditUnlocked] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [pendingAction, setPendingAction] = useState(null);
   const [expenseName, setExpenseName] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseNote, setExpenseNote] = useState('');
   const [expenseRange, setExpenseRange] = useState('month'); // 'day' | 'week' | 'month'
-  const [unlocked, setUnlocked] = useState(false);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const [deleteModalId, setDeleteModalId] = useState(null);
-  const [deletePassword, setDeletePassword] = useState('');
-  const [deletePasswordError, setDeletePasswordError] = useState('');
   const [kassaBalance, setKassaBalance] = useState(null);
   const [kassaBalanceInput, setKassaBalanceInput] = useState('');
   const [kassaSaving, setKassaSaving] = useState(false);
-  const [lastKassaUpdate, setLastKassaUpdate] = useState(null);
   const [kassaWithdrawals, setKassaWithdrawals] = useState([]);
+  const [payrollReport, setPayrollReport] = useState(null);
+  const [showArchive, setShowArchive] = useState(false);
+  const [selectedArchiveKey, setSelectedArchiveKey] = useState('');
+  const [payrollFilter, setPayrollFilter] = useState('period');
+  const [withdrawalToDelete, setWithdrawalToDelete] = useState(null);
+  const [deletingWithdrawal, setDeletingWithdrawal] = useState(false);
   const [withdrawalInput, setWithdrawalInput] = useState('');
   const [rangeStart, setRangeStart] = useState('');
   const [rangeEnd, setRangeEnd] = useState('');
@@ -48,21 +60,71 @@ const AdminFinancePage = () => {
     return { start, end };
   };
 
+  const loadKassaData = async () => {
+    try {
+      const settled = await fetchAllSettled([
+        apiClient.get('/config/kassaBalance'),
+        apiClient.get('/config/kassaWithdrawals'),
+      ]);
+      const [balanceRes, withdrawalsRes] = settled;
+      if (balanceRes.ok) {
+        const v = balanceRes.data?.value;
+        const num = typeof v === 'number' ? v : 0;
+        setKassaBalance(num);
+        setKassaBalanceInput(String(num));
+      }
+      if (withdrawalsRes.ok) {
+        const list = withdrawalsRes.data?.value;
+        setKassaWithdrawals(Array.isArray(list) ? list : []);
+      }
+    } catch {
+      setKassaBalance(0);
+      setKassaBalanceInput('0');
+      setKassaWithdrawals([]);
+    }
+  };
+
+  const loadPayrollReport = async () => {
+    try {
+      const res = await apiClient.get(`/employee/payroll/finance?date=${selectedDate}`);
+      setPayrollReport(res.data);
+    } catch {
+      setPayrollReport(null);
+    }
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
       const { start, end } = getMonthRange(selectedDate);
-      const [dayOrdersRes, monthOrdersRes, dayExpensesRes, monthExpensesRes] = await Promise.all([
-        api.get(`/order/GetOrders?date=${selectedDate}`),
-        api.get(`/order/GetOrders?from=${start.toISOString()}&to=${end.toISOString()}`),
-        api.get(`/expense?date=${selectedDate}`),
-        api.get(`/expense?from=${start.toISOString()}&to=${end.toISOString()}`),
+      const settled = await fetchAllSettled([
+        apiClient.get(`/order/GetOrders?date=${selectedDate}`),
+        apiClient.get(`/order/GetOrders?from=${start.toISOString()}&to=${end.toISOString()}`),
+        apiClient.get(`/expense?date=${selectedDate}`),
+        apiClient.get(`/expense?from=${start.toISOString()}&to=${end.toISOString()}`),
       ]);
+      const [dayOrdersRes, monthOrdersRes, dayExpensesRes, monthExpensesRes] = settled;
 
-      setOrdersDay(Array.isArray(dayOrdersRes.data) ? dayOrdersRes.data : []);
-      setOrdersMonth(Array.isArray(monthOrdersRes.data) ? monthOrdersRes.data : []);
-      setExpensesDay(Array.isArray(dayExpensesRes.data) ? dayExpensesRes.data : []);
-      setExpensesMonth(Array.isArray(monthExpensesRes.data) ? monthExpensesRes.data : []);
+      setOrdersDay(dayOrdersRes.ok && Array.isArray(dayOrdersRes.data) ? dayOrdersRes.data : []);
+      setOrdersMonth(monthOrdersRes.ok && Array.isArray(monthOrdersRes.data) ? monthOrdersRes.data : []);
+      setExpensesDay(
+        dayExpensesRes.ok && Array.isArray(dayExpensesRes.data)
+          ? dayExpensesRes.data.filter(isOperationalExpense)
+          : []
+      );
+      setExpensesMonth(
+        monthExpensesRes.ok && Array.isArray(monthExpensesRes.data)
+          ? monthExpensesRes.data.filter(isOperationalExpense)
+          : []
+      );
+
+      await loadKassaData();
+      await loadPayrollReport();
+
+      if (settled.some((r) => !r.ok)) {
+        setNotification('Bəzi maliyyə məlumatları qismən yüklənmədi');
+        setTimeout(() => setNotification(''), 4000);
+      }
     } catch (err) {
       setNotification('Maliyyə məlumatları yüklənərkən xəta baş verdi');
       setTimeout(() => setNotification(''), 4000);
@@ -96,12 +158,17 @@ const AdminFinancePage = () => {
     endNext.setDate(endNext.getDate() + 1);
     const fetchRange = async () => {
       try {
-        const [ordersRes, expensesRes] = await Promise.all([
-          api.get(`/order/GetOrders?from=${start.toISOString()}&to=${endNext.toISOString()}`),
-          api.get(`/expense?from=${start.toISOString()}&to=${endNext.toISOString()}`),
+        const settled = await fetchAllSettled([
+          apiClient.get(`/order/GetOrders?from=${start.toISOString()}&to=${endNext.toISOString()}`),
+          apiClient.get(`/expense?from=${start.toISOString()}&to=${endNext.toISOString()}`),
         ]);
-        setOrdersRange(Array.isArray(ordersRes.data) ? ordersRes.data : []);
-        setExpensesRange(Array.isArray(expensesRes.data) ? expensesRes.data : []);
+        const [ordersRes, expensesRes] = settled;
+        setOrdersRange(ordersRes.ok && Array.isArray(ordersRes.data) ? ordersRes.data : []);
+        setExpensesRange(
+          expensesRes.ok && Array.isArray(expensesRes.data)
+            ? expensesRes.data.filter(isOperationalExpense)
+            : []
+        );
       } catch {
         setOrdersRange([]);
         setExpensesRange([]);
@@ -109,33 +176,6 @@ const AdminFinancePage = () => {
     };
     fetchRange();
   }, [rangeStart, rangeEnd]);
-
-  useEffect(() => {
-    if (!unlocked) return;
-    const load = async () => {
-      try {
-        const [balanceRes, updateRes, withdrawalsRes] = await Promise.all([
-          api.get('/config/kassaBalance'),
-          api.get('/config/lastKassaUpdate'),
-          api.get('/config/kassaWithdrawals'),
-        ]);
-        const v = balanceRes.data?.value;
-        const num = typeof v === 'number' ? v : 0;
-        setKassaBalance(num);
-        setKassaBalanceInput(String(num));
-        const last = updateRes.data?.value;
-        setLastKassaUpdate(typeof last === 'string' ? last : null);
-        const list = withdrawalsRes.data?.value;
-        setKassaWithdrawals(Array.isArray(list) ? list : []);
-      } catch {
-        setKassaBalance(0);
-        setKassaBalanceInput('0');
-        setLastKassaUpdate(null);
-        setKassaWithdrawals([]);
-      }
-    };
-    load();
-  }, [unlocked]);
 
   const dayIncome = useMemo(
     () => ordersDay.reduce((sum, o) => sum + (o.total || 0), 0),
@@ -164,8 +204,8 @@ const AdminFinancePage = () => {
   const selectedMonthKey = selectedDate.slice(0, 7);
   const thisMonthWithdrawals = useMemo(() => {
     return kassaWithdrawals
-      .filter((w) => (w.date || '').slice(0, 7) === selectedMonthKey)
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      .filter((w) => (w.date || w.at || '').slice(0, 7) === selectedMonthKey)
+      .sort((a, b) => (b.at || b.date || '').localeCompare(a.at || a.date || ''));
   }, [kassaWithdrawals, selectedMonthKey]);
   const totalWithdrawn = useMemo(
     () => kassaWithdrawals.reduce((s, w) => s + (Number(w.amount) || 0), 0),
@@ -212,7 +252,7 @@ const AdminFinancePage = () => {
       let currentBalance = kassaBalance !== null ? kassaBalance : null;
       if (currentBalance === null) {
         try {
-          const balanceRes = await api.get('/config/kassaBalance');
+          const balanceRes = await apiClient.get('/config/kassaBalance');
           const v = balanceRes.data?.value;
           currentBalance = typeof v === 'number' ? v : 0;
         } catch {
@@ -230,7 +270,7 @@ const AdminFinancePage = () => {
         note: expenseNote,
         date: selectedDate,
       };
-      const res = await api.post('/expense', payload);
+      const res = await apiClient.post('/expense', payload);
       const created = res.data?.expense;
       if (created) {
         setExpensesDay(prev => [created, ...prev]);
@@ -239,11 +279,9 @@ const AdminFinancePage = () => {
         setExpenseAmount('');
         setExpenseNote('');
         const newBalance = currentBalance - amount;
-        await api.put('/config/kassaBalance', { value: newBalance });
-        if (unlocked) {
-          setKassaBalance(newBalance);
-          setKassaBalanceInput(String(newBalance));
-        }
+        await apiClient.put('/config/kassaBalance', { value: newBalance });
+        setKassaBalance(newBalance);
+        setKassaBalanceInput(String(newBalance));
         setNotification(`Xərc əlavə olundu. Kassadan ${formatMoney(amount)} çıxıldı.`);
         setTimeout(() => setNotification(''), 4000);
       } else {
@@ -255,29 +293,20 @@ const AdminFinancePage = () => {
     }
   };
 
-  const openDeleteModal = (id) => {
-    setDeleteModalId(id);
-    setDeletePassword('');
-    setDeletePasswordError('');
-  };
-
-  const handleDeleteExpense = async () => {
-    if (!deleteModalId) return;
-    if (deletePassword !== MASTER_ADMIN_PASSWORD) {
-      setDeletePasswordError('Şifrə yanlışdır');
-      return;
-    }
-    const expense = expensesDay.find(e => e._id === deleteModalId) || expensesMonth.find(e => e._id === deleteModalId);
+  const handleDeleteExpense = async (deleteId) => {
+    if (!deleteId) return;
+    if (!window.confirm('Bu xərci silmək istəyirsiniz?')) return;
+    const expense = expensesDay.find(e => e._id === deleteId) || expensesMonth.find(e => e._id === deleteId);
     const amount = expense ? (Number(expense.amount) || 0) : 0;
     try {
-      await api.delete(`/expense/${deleteModalId}`);
-      setExpensesDay(prev => prev.filter(e => e._id !== deleteModalId));
-      setExpensesMonth(prev => prev.filter(e => e._id !== deleteModalId));
+      await apiClient.delete(`/expense/${deleteId}`);
+      setExpensesDay(prev => prev.filter(e => e._id !== deleteId));
+      setExpensesMonth(prev => prev.filter(e => e._id !== deleteId));
       if (amount > 0) {
         let currentBalance = kassaBalance !== null ? kassaBalance : null;
         if (currentBalance === null) {
           try {
-            const balanceRes = await api.get('/config/kassaBalance');
+            const balanceRes = await apiClient.get('/config/kassaBalance');
             const v = balanceRes.data?.value;
             currentBalance = typeof v === 'number' ? v : 0;
           } catch {
@@ -285,19 +314,14 @@ const AdminFinancePage = () => {
           }
         }
         const newBalance = currentBalance + amount;
-        await api.put('/config/kassaBalance', { value: newBalance });
-        if (unlocked) {
-          setKassaBalance(newBalance);
-          setKassaBalanceInput(String(newBalance));
-        }
+        await apiClient.put('/config/kassaBalance', { value: newBalance });
+        setKassaBalance(newBalance);
+        setKassaBalanceInput(String(newBalance));
         setNotification(`Xərc silindi. ${formatMoney(amount)} kassaya qaytarıldı.`);
       } else {
         setNotification('Xərc silindi');
       }
       setTimeout(() => setNotification(''), 4000);
-      setDeleteModalId(null);
-      setDeletePassword('');
-      setDeletePasswordError('');
     } catch (err) {
       setNotification('Xərc silinərkən xəta baş verdi');
       setTimeout(() => setNotification(''), 4000);
@@ -320,18 +344,6 @@ const AdminFinancePage = () => {
     });
   };
 
-  const handleUnlock = (e) => {
-    e.preventDefault();
-    if (passwordInput === MASTER_ADMIN_PASSWORD) {
-      setUnlocked(true);
-      setShowPasswordModal(false);
-      setPasswordInput('');
-      setPasswordError('');
-    } else {
-      setPasswordError('Şifrə yanlışdır');
-    }
-  };
-
   const handleSaveKassa = async () => {
     const num = parseFloat(kassaBalanceInput);
     if (Number.isNaN(num) || num < 0) {
@@ -341,7 +353,7 @@ const AdminFinancePage = () => {
     }
     setKassaSaving(true);
     try {
-      await api.put('/config/kassaBalance', { value: num });
+      await apiClient.put('/config/kassaBalance', { value: num });
       setKassaBalance(num);
       setNotification('Kassadakı pul yadda saxlanıldı');
       setTimeout(() => setNotification(''), 3000);
@@ -352,53 +364,6 @@ const AdminFinancePage = () => {
       setKassaSaving(false);
     }
   };
-
-  const handleAddNetToKassa = async () => {
-    const current = kassaBalance !== null ? kassaBalance : 0;
-    const newBalance = current + dayIncome;
-    setKassaSaving(true);
-    try {
-      await Promise.all([
-        api.put('/config/kassaBalance', { value: newBalance }),
-        api.put('/config/lastKassaUpdate', { value: selectedDate }),
-      ]);
-      setKassaBalance(newBalance);
-      setKassaBalanceInput(String(newBalance));
-      setLastKassaUpdate(selectedDate);
-      setNotification(`Gəlir (${formatMoney(dayIncome)}) balansa əlavə olundu`);
-      setTimeout(() => setNotification(''), 3000);
-    } catch {
-      setNotification('Balans yenilənərkən xəta baş verdi');
-      setTimeout(() => setNotification(''), 4000);
-    } finally {
-      setKassaSaving(false);
-    }
-  };
-
-  const handleRevertKassaDay = async () => {
-    if (lastKassaUpdate !== selectedDate) return;
-    const current = kassaBalance !== null ? kassaBalance : 0;
-    const newBalance = Math.max(0, current - dayIncome);
-    setKassaSaving(true);
-    try {
-      await Promise.all([
-        api.put('/config/kassaBalance', { value: newBalance }),
-        api.put('/config/lastKassaUpdate', { value: '' }),
-      ]);
-      setKassaBalance(newBalance);
-      setKassaBalanceInput(String(newBalance));
-      setLastKassaUpdate('');
-      setNotification(`Bu günün gəliri (${formatMoney(dayIncome)}) kassadan geri alındı`);
-      setTimeout(() => setNotification(''), 3000);
-    } catch {
-      setNotification('Geri alınarkən xəta baş verdi');
-      setTimeout(() => setNotification(''), 4000);
-    } finally {
-      setKassaSaving(false);
-    }
-  };
-
-  const kassaNetAlreadyAdded = lastKassaUpdate === selectedDate;
 
   const handleWithdrawFromKassa = async () => {
     const amount = parseFloat(withdrawalInput);
@@ -419,8 +384,8 @@ const AdminFinancePage = () => {
       const newEntry = { amount, date: selectedDate };
       const newList = [...kassaWithdrawals, newEntry];
       await Promise.all([
-        api.put('/config/kassaBalance', { value: newBalance }),
-        api.put('/config/kassaWithdrawals', { value: newList }),
+        apiClient.put('/config/kassaBalance', { value: newBalance }),
+        apiClient.put('/config/kassaWithdrawals', { value: newList }),
       ]);
       setKassaBalance(newBalance);
       setKassaBalanceInput(String(newBalance));
@@ -436,6 +401,28 @@ const AdminFinancePage = () => {
     }
   };
 
+  const handleDeleteEmployeeWithdrawal = async () => {
+    if (!withdrawalToDelete?.id) return;
+    setDeletingWithdrawal(true);
+    try {
+      const res = await apiClient.delete(`/employee/withdrawals/${withdrawalToDelete.id}`);
+      if (typeof res.data?.kassaBalance === 'number') {
+        setKassaBalance(res.data.kassaBalance);
+        setKassaBalanceInput(String(res.data.kassaBalance));
+      }
+      await loadPayrollReport();
+      await loadKassaData();
+      setWithdrawalToDelete(null);
+      setNotification('Maaş çıxışı silindi. Pul kassaya qaytarıldı, işçi həmin günü yenidən götürə bilər.');
+      setTimeout(() => setNotification(''), 4000);
+    } catch (err) {
+      setNotification(err.response?.data?.error || 'Maaş çıxışı silinərkən xəta baş verdi');
+      setTimeout(() => setNotification(''), 4000);
+    } finally {
+      setDeletingWithdrawal(false);
+    }
+  };
+
   const handleDeleteWithdrawal = async (w) => {
     const idx = kassaWithdrawals.findIndex(
       (x) => String(x.date) === String(w.date) && Number(x.amount) === Number(w.amount)
@@ -448,8 +435,8 @@ const AdminFinancePage = () => {
     setKassaSaving(true);
     try {
       await Promise.all([
-        api.put('/config/kassaBalance', { value: newBalance }),
-        api.put('/config/kassaWithdrawals', { value: newList }),
+        apiClient.put('/config/kassaBalance', { value: newBalance }),
+        apiClient.put('/config/kassaWithdrawals', { value: newList }),
       ]);
       setKassaBalance(newBalance);
       setKassaBalanceInput(String(newBalance));
@@ -464,66 +451,122 @@ const AdminFinancePage = () => {
     }
   };
 
+  const handleUnlock = (e) => {
+    e.preventDefault();
+    if (passwordInput === MASTER_ADMIN_PASSWORD) {
+      setEditUnlocked(true);
+      setShowPasswordModal(false);
+      setPasswordInput('');
+      setPasswordError('');
+      if (pendingAction) {
+        pendingAction();
+        setPendingAction(null);
+      }
+    } else {
+      setPasswordError('Şifrə yanlışdır');
+    }
+  };
+
+  const requireEditUnlock = (action) => {
+    if (editUnlocked) {
+      action();
+      return;
+    }
+    setPendingAction(() => action);
+    setShowPasswordModal(true);
+    setPasswordInput('');
+    setPasswordError('');
+  };
+
+  const formatTime = (value) => {
+    if (!value) return '—';
+    return new Date(value).toLocaleTimeString('az-AZ', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const renderEmployeeAccordion = (employees, emptyMessage = 'Məlumat yoxdur', { allowDelete = false } = {}) => {
+    if (!employees?.length) {
+      return <p className="text-sm text-gray-500 py-4 text-center">{emptyMessage}</p>;
+    }
+    return (
+      <div className="space-y-2">
+        {employees.map((emp) => (
+          <details
+            key={emp.employeeId}
+            className="group border border-violet-100 rounded-xl overflow-hidden bg-white shadow-sm"
+          >
+            <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden px-4 py-3 flex items-center justify-between gap-3 hover:bg-violet-50/80 transition select-none">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
+                  <i className="bi bi-person-fill text-violet-600"></i>
+                </div>
+                <div className="min-w-0 text-left">
+                  <div className="font-semibold text-gray-800 truncate">{emp.employeeName}</div>
+                  <div className="text-xs text-gray-500">{emp.days?.length || 0} gün · cəmi {formatMoney(emp.total || 0)}</div>
+                </div>
+              </div>
+              <i className="bi bi-chevron-down text-violet-400 text-sm shrink-0 transition-transform group-open:rotate-180"></i>
+            </summary>
+            <div className="border-t border-violet-100 bg-violet-50/40">
+              <div className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-violet-600/80 flex items-center justify-between gap-2">
+                <span>Götürdüyü günlər</span>
+                {allowDelete && !editUnlocked && (
+                  <span className="normal-case font-normal text-gray-400">Silmək üçün redaktə kilidini açın</span>
+                )}
+              </div>
+              {(emp.days?.length || 0) > 0 ? (
+                <ul className="divide-y divide-violet-100/80 max-h-48 overflow-y-auto">
+                  {emp.days.map((day, idx) => (
+                    <li key={day.withdrawalId || `${day.date}-${idx}`} className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm bg-white/60">
+                      <span className="text-gray-600 min-w-0">
+                        {formatDate(day.date)}
+                        {day.withdrawnAt && (
+                          <span className="text-gray-400 ml-2 text-xs">{formatTime(day.withdrawnAt)}</span>
+                        )}
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-semibold text-violet-700">-{formatMoney(day.amount || 0)}</span>
+                        {allowDelete && editUnlocked && day.withdrawalId && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setWithdrawalToDelete({
+                                id: day.withdrawalId,
+                                employeeName: emp.employeeName,
+                                date: day.date,
+                                amount: day.amount,
+                              })
+                            }
+                            disabled={deletingWithdrawal}
+                            className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition disabled:opacity-50"
+                            title="Maaş çıxışını sil (pul kassaya qaytarılacaq)"
+                          >
+                            <i className="bi bi-trash text-sm"></i>
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500 px-4 pb-3">Götürmə yoxdur.</p>
+              )}
+            </div>
+          </details>
+        ))}
+      </div>
+    );
+  };
+
+  const openEditUnlockModal = () => {
+    setPendingAction(null);
+    setShowPasswordModal(true);
+    setPasswordInput('');
+    setPasswordError('');
+  };
+
   return (
     <div className="max-w-6xl mx-auto p-4 relative">
-      {/* Delete expense password modal */}
-      {deleteModalId && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm bg-gray-900 text-white rounded-2xl shadow-xl p-6 border border-gray-700">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-gray-800 rounded-full p-2">
-                <i className="bi bi-trash text-red-400 text-xl"></i>
-              </div>
-              <div>
-                <div className="text-lg font-semibold">Xərci silmək üçün şifrə</div>
-                <div className="text-xs text-gray-400">Bu əməliyyat kassadan xərci siləcək</div>
-              </div>
-            </div>
-            <form
-              onSubmit={e => {
-                e.preventDefault();
-                handleDeleteExpense();
-              }}
-              className="space-y-4"
-            >
-              <input
-                type="password"
-                inputMode="numeric"
-                autoFocus
-                value={deletePassword}
-                onChange={e => {
-                  setDeletePassword(e.target.value);
-                  setDeletePasswordError('');
-                }}
-                placeholder="****"
-                className="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 text-center text-2xl tracking-widest focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              {deletePasswordError && <div className="text-sm text-red-400">{deletePasswordError}</div>}
-              <div className="flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeleteModalId(null);
-                    setDeletePassword('');
-                    setDeletePasswordError('');
-                  }}
-                  className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm font-semibold"
-                >
-                  Ləğv et
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm font-semibold"
-                >
-                  Sil
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-      {/* Password Modal */}
-      {showPasswordModal && !unlocked && (
+      {showPasswordModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-sm bg-gray-900 text-white rounded-2xl shadow-xl p-6 border border-gray-700">
             <div className="flex items-center gap-3 mb-4">
@@ -531,8 +574,8 @@ const AdminFinancePage = () => {
                 <i className="bi bi-shield-lock text-orange-400 text-xl"></i>
               </div>
               <div>
-                <div className="text-lg font-semibold">Master admin girişi</div>
-                <div className="text-xs text-gray-400">Maliyyə məlumatlarını görmək üçün şifrə daxil et</div>
+                <div className="text-lg font-semibold">Redaktə / silmə</div>
+                <div className="text-xs text-gray-400">Bu əməliyyat üçün şifrə daxil edin</div>
               </div>
             </div>
             <form onSubmit={handleUnlock} className="space-y-4">
@@ -549,23 +592,24 @@ const AdminFinancePage = () => {
                 className="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 text-center text-2xl tracking-widest focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
               {passwordError && <div className="text-sm text-red-400">{passwordError}</div>}
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => {
                     setShowPasswordModal(false);
+                    setPendingAction(null);
                     setPasswordInput('');
                     setPasswordError('');
                   }}
                   className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm font-semibold"
                 >
-                  Geri
+                  Ləğv et
                 </button>
                 <button
                   type="submit"
                   className="flex-1 px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-sm font-semibold"
                 >
-                  Daxil ol
+                  Təsdiq et
                 </button>
               </div>
             </form>
@@ -573,16 +617,65 @@ const AdminFinancePage = () => {
         </div>
       )}
 
-      {/* Master admin unlock modal */}
+      {withdrawalToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 border border-violet-100">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-50 rounded-full p-2">
+                <i className="bi bi-trash text-red-500 text-xl"></i>
+              </div>
+              <div>
+                <div className="text-lg font-semibold text-gray-800">Maaş çıxışını sil</div>
+                <div className="text-xs text-gray-500">Səhv götürməni ləğv et</div>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-1">
+              <span className="font-semibold text-gray-800">{withdrawalToDelete.employeeName}</span>
+              {' · '}
+              {formatDate(withdrawalToDelete.date)}
+            </p>
+            <p className="text-sm text-gray-600 mb-4">
+              <span className="font-bold text-violet-800">{formatMoney(withdrawalToDelete.amount || 0)}</span>
+              {' '}kassaya qaytarılacaq və işçi həmin günü yenidən götürə biləcək.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setWithdrawalToDelete(null)}
+                disabled={deletingWithdrawal}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm font-semibold text-gray-700 disabled:opacity-50"
+              >
+                Ləğv et
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteEmployeeWithdrawal}
+                disabled={deletingWithdrawal}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deletingWithdrawal ? (
+                  <>
+                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    Silinir...
+                  </>
+                ) : (
+                  'Sil'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white shadow-sm rounded-2xl p-5 border mb-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800 tracking-tight">Kassa və maliyyə</h1>
+            <h1 className="text-3xl font-bold text-gray-800 tracking-tight">Günlük Xərclər</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Gündəlik və aylıq gəlir/xərc və xalis qazanc.
+              Gündəlik gəlir, məhsul/material xərcləri və kassa. İşçi maaşları ayrıca bölmədədir.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <i className="bi bi-calendar-event text-orange-500 text-2xl"></i>
             <div className="flex flex-col">
               <label className="text-xs font-semibold text-gray-600 mb-1">Tarix seç</label>
@@ -593,15 +686,23 @@ const AdminFinancePage = () => {
                 className="border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm"
               />
             </div>
-            <button
-              type="button"
-              onClick={() => setShowPasswordModal(true)}
-              className="px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold flex items-center gap-2 hover:bg-black"
-              title="Yalnız master admin üçün"
-            >
-              <i className="bi bi-key"></i>
-              <span className="hidden sm:inline">Master admin</span>
-            </button>
+            {isMaster && (
+              editUnlocked ? (
+                <span className="px-3 py-2 rounded-lg bg-green-100 text-green-800 text-xs font-semibold flex items-center gap-2">
+                  <i className="bi bi-shield-check"></i>
+                  Redaktə aktiv
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={openEditUnlockModal}
+                  className="px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold flex items-center gap-2 hover:bg-black"
+                >
+                  <i className="bi bi-key"></i>
+                  Redaktə / silmə
+                </button>
+              )
+            )}
           </div>
         </div>
         {notification && (
@@ -612,10 +713,7 @@ const AdminFinancePage = () => {
         )}
       </div>
 
-      {/* Header */}
-      {unlocked ? (
-        <>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-white border rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-semibold text-gray-600">Bu gün</span>
@@ -626,10 +724,14 @@ const AdminFinancePage = () => {
                 <span className="text-sm text-gray-600">Gəlir</span>
                 <span className="text-lg font-bold text-green-700">{formatMoney(dayIncome)}</span>
               </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Məhsul xərci</span>
+                <span className="text-lg font-bold text-red-600">-{formatMoney(dayExpense)}</span>
+              </div>
               <div className="flex items-center justify-between border-t pt-2 mt-1">
                 <span className="text-sm font-semibold text-gray-700">Günlük xalis qazanc</span>
-                <span className="text-xl font-extrabold text-emerald-700">
-                  {formatMoney(dayIncome)}
+                <span className={`text-xl font-extrabold ${dayNet >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {formatMoney(dayNet)}
                 </span>
               </div>
             </div>
@@ -662,7 +764,7 @@ const AdminFinancePage = () => {
                 <span className="text-lg font-bold text-green-700">{formatMoney(rangeIncome)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Xərc</span>
+                <span className="text-sm text-gray-600">Xərc (məhsul)</span>
                 <span className="text-lg font-bold text-red-600">-{formatMoney(rangeExpense)}</span>
               </div>
               <div className="flex items-center justify-between border-t pt-2 mt-1">
@@ -686,41 +788,67 @@ const AdminFinancePage = () => {
               <>
                 <p className="text-[10px] uppercase tracking-wider text-amber-700/80 font-medium mb-0.5">Cari balans</p>
                 <p className="text-2xl font-extrabold text-amber-800 mb-1">{formatMoney(kassaBalance)}</p>
-                <div className="flex items-center gap-1.5 text-[11px] text-gray-500 mb-4">
-                  <i className="bi bi-clock"></i>
-                  <span>Hər gecə 03:00-da xalis qazanc əlavə olunur</span>
-                </div>
+                <p className="text-[11px] text-gray-500 mb-4">Pul Masaların idarəsi → Bitir basılanda birbaşa kassaya əlavə olunur.</p>
               </>
             )}
 
             <div className="pt-3 border-t border-amber-200/60 space-y-3">
-              <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-white/70">
-                <span className="text-xs text-gray-600">Bu gün ({selectedDate}) gəlir (kassaya əlavə olunacaq)</span>
-                <span className="text-sm font-bold text-emerald-700">
-                  {formatMoney(dayIncome)}
-                </span>
-              </div>
-              {kassaNetAlreadyAdded ? (
-                <button
-                  type="button"
-                  onClick={handleRevertKassaDay}
-                  disabled={kassaSaving}
-                  className="w-full px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <i className="bi bi-arrow-counterclockwise"></i>
-                  Geri al
-                </button>
+              <p className="text-[10px] uppercase tracking-wider text-amber-700/80 font-medium mb-0.5">Kassadan çəkilib (ümumi)</p>
+              <p className="text-lg font-bold text-amber-800">{formatMoney(totalWithdrawn)}</p>
+
+              <p className="text-[10px] uppercase tracking-wider text-gray-600 font-medium mt-2 mb-1.5">
+                Bu ay çəkilənlər ({selectedDate.slice(0, 7)})
+              </p>
+              {thisMonthWithdrawals.length === 0 ? (
+                <p className="text-xs text-gray-500 py-1">Bu ay hələ çəkilmə yoxdur</p>
               ) : (
-                <button
-                  type="button"
-                  onClick={handleAddNetToKassa}
-                  disabled={kassaSaving}
-                  className="w-full px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <i className="bi bi-plus-lg"></i>
-                  Kassanı yenidən hesabla, əlavə et
-                </button>
+                <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {thisMonthWithdrawals.map((w, i) => {
+                    const amount = Number(w.amount) || 0;
+                    const isReversal = amount < 0 || w.type === 'reversal';
+                    const isEmployee = w.source === 'employee';
+                    return (
+                    <li
+                      key={w.withdrawalId ? `${w.withdrawalId}-${w.type || 'w'}` : i}
+                      className={`flex items-center justify-between gap-2 py-2 px-2.5 rounded-lg text-sm group ${
+                        isEmployee ? 'bg-violet-50/90 border border-violet-100' : 'bg-white/80'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-sm font-medium truncate ${isEmployee ? 'text-violet-900' : 'text-gray-800'}`}>
+                          {w.label || (isEmployee ? 'İşçi pul götürdü' : 'Kassadan çəkilmə')}
+                        </div>
+                        <div className="text-xs text-gray-500">{w.date ? formatDate(w.date) : '—'}</div>
+                      </div>
+                      <span className={`font-semibold shrink-0 ${isReversal ? 'text-green-700' : 'text-amber-800'}`}>
+                        {isReversal ? '+' : '-'}{formatMoney(Math.abs(amount))}
+                      </span>
+                      {isMaster && editUnlocked && !isEmployee && (
+                        <button
+                          type="button"
+                          onClick={() => requireEditUnlock(() => handleDeleteWithdrawal(w))}
+                          disabled={kassaSaving}
+                          className="p-1 rounded text-red-500 hover:bg-red-100 transition disabled:opacity-50 shrink-0"
+                          title="Çəkilməni sil (məbləğ kassaya qaytarılacaq)"
+                        >
+                          <i className="bi bi-trash text-sm"></i>
+                        </button>
+                      )}
+                    </li>
+                    );
+                  })}
+                </ul>
               )}
+            </div>
+
+            <div className="pt-3 border-t border-amber-200/60">
+              <p className="text-[11px] text-gray-500">
+                İşçi maaşları kassadan çıxır, amma günlük xərclərə daxil deyil — aşağıdakı ayrı bölmədə görünür.
+              </p>
+            </div>
+
+            {isMaster && editUnlocked ? (
+            <div className="pt-3 border-t border-amber-200/60 space-y-3 mt-3">
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-1 block">Balansı redaktə et (₼)</label>
                 <input
@@ -735,7 +863,7 @@ const AdminFinancePage = () => {
               </div>
               <button
                 type="button"
-                onClick={handleSaveKassa}
+                onClick={() => requireEditUnlock(handleSaveKassa)}
                 disabled={kassaSaving}
                 className="w-full px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
               >
@@ -752,40 +880,7 @@ const AdminFinancePage = () => {
                 )}
               </button>
 
-              <div className="pt-3 mt-3 border-t border-amber-200/60 space-y-3">
-                <p className="text-[10px] uppercase tracking-wider text-amber-700/80 font-medium mb-0.5">Kassadan çəkilib (ümumi)</p>
-                <p className="text-lg font-bold text-amber-800">{formatMoney(totalWithdrawn)}</p>
-
-                <p className="text-[10px] uppercase tracking-wider text-gray-600 font-medium mt-2 mb-1.5">
-                  Bu ay çəkilənlər ({selectedDate.slice(0, 7)})
-                </p>
-                {thisMonthWithdrawals.length === 0 ? (
-                  <p className="text-xs text-gray-500 py-1">Bu ay hələ çəkilmə yoxdur</p>
-                ) : (
-                  <ul className="space-y-1.5 max-h-32 overflow-y-auto">
-                    {thisMonthWithdrawals.map((w, i) => (
-                      <li
-                        key={i}
-                        className="flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-white/80 text-sm group"
-                      >
-                        <span className="text-gray-600">{w.date ? formatDate(w.date) : '—'}</span>
-                        <span className="font-semibold text-amber-800">{formatMoney(w.amount || 0)}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteWithdrawal(w)}
-                          disabled={kassaSaving}
-                          className="p-1 rounded text-red-500 hover:bg-red-100 transition disabled:opacity-50"
-                          title="Çəkilməni sil (məbləğ kassaya qaytarılacaq)"
-                        >
-                          <i className="bi bi-trash text-sm"></i>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <p className="text-[11px] text-gray-500">
-                  Seçilmiş tarixə uyğun aydan kassadan çəkdiyiniz məbləğlər
-                </p>
+              <div className="space-y-3">
                 <div>
                   <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-1 block">Kassadan çək (₼)</label>
                   <input
@@ -800,7 +895,7 @@ const AdminFinancePage = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={handleWithdrawFromKassa}
+                  onClick={() => requireEditUnlock(handleWithdrawFromKassa)}
                   disabled={kassaSaving || !withdrawalInput.trim()}
                   className="w-full px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50"
                 >
@@ -809,15 +904,16 @@ const AdminFinancePage = () => {
                 </button>
               </div>
             </div>
+            ) : null}
           </div>
         </div>
 
-        {/* Aylıq xərclər siyahısı - Bu gün / Bu ay altında */}
+        {/* Aylıq xərclər siyahısı - yalnız məhsul/material */}
         <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm mb-6">
           <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-gray-800">
-                {expenseRange === 'day' ? 'Günlük' : expenseRange === 'week' ? 'Həftəlik' : 'Aylıq'} xərclər
+                {expenseRange === 'day' ? 'Günlük' : expenseRange === 'week' ? 'Həftəlik' : 'Aylıq'} məhsul xərcləri
               </h3>
               <span className="text-sm font-semibold text-orange-600">
                 {formatMoney(visibleExpenseTotal)}
@@ -872,25 +968,180 @@ const AdminFinancePage = () => {
             </div>
           )}
         </div>
-        </>
-      ) : (
-        <div className="mt-2 mb-4 text-center text-gray-500 text-xs sm:text-sm">
-          Ümumi gəlir / xərc və geniş xərclər siyahısı yalnız <span className="font-semibold">master admin</span> üçün görünür.
-        </div>
-      )}
 
-      {/* Bu gün üçün xərc əlavə etmə və bu günün xərcləri - şifrəsiz görünür */}
+        {/* İşçi maaşları — 10–10 dövr, hər işçi ayrı, arxiv */}
+        <div className="bg-white border border-violet-200 rounded-2xl p-5 shadow-sm mb-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-violet-100">
+                  <i className="bi bi-person-badge text-violet-700 text-lg"></i>
+                </div>
+                <h3 className="text-base font-bold text-gray-800">İşçi maaşları</h3>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Hesablama: hər ayın <strong>10-u – 10-u</strong>. Ayın 10-u keçəndə əvvəlki dövr avtomatik arxivlənir.
+                Kassadan çıxır, günlük məhsul xərclərinə daxil deyil.
+              </p>
+            </div>
+            {payrollReport?.currentPeriod && (
+              <div className="flex flex-wrap gap-3 text-sm">
+                <div className="px-3 py-2 rounded-lg bg-violet-50 border border-violet-100">
+                  <span className="text-gray-600 block text-xs">Seçilmiş gün</span>
+                  <span className="font-bold text-violet-800">{formatMoney(payrollReport.today?.total || 0)}</span>
+                </div>
+                <div className="px-3 py-2 rounded-lg bg-violet-100 border border-violet-200">
+                  <span className="text-gray-600 block text-xs">Cari dövr cəmi</span>
+                  <span className="font-bold text-violet-900">{formatMoney(payrollReport.currentPeriod.totalAmount || 0)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {!payrollReport ? (
+            <p className="text-sm text-gray-500 py-4">Maaş məlumatı yüklənir...</p>
+          ) : (
+            <>
+              <div className="mb-4 p-4 rounded-xl bg-violet-50/50 border border-violet-100 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-violet-700 mb-1">Cari dövr (10–10)</div>
+                  <div className="text-sm font-semibold text-gray-800">{payrollReport.currentPeriod.label}</div>
+                </div>
+                <div className="text-sm text-gray-600">
+                  <span className="font-semibold text-violet-800">{payrollReport.currentPeriod.employees?.length || 0}</span> işçi
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mb-4 bg-gray-100 rounded-xl p-1 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setPayrollFilter('period')}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                    payrollFilter === 'period'
+                      ? 'bg-white text-violet-800 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Cari dövr ({payrollReport.currentPeriod.employees?.length || 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPayrollFilter('today')}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                    payrollFilter === 'today'
+                      ? 'bg-white text-violet-800 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Bu gün — {formatDate(payrollReport.today?.date || selectedDate)} ({payrollReport.today?.employees?.length || 0})
+                </button>
+              </div>
+
+              {renderEmployeeAccordion(
+                payrollFilter === 'today'
+                  ? payrollReport.today?.employees
+                  : payrollReport.currentPeriod?.employees,
+                payrollFilter === 'today'
+                  ? 'Bu gün heç bir işçi maaş götürməyib.'
+                  : 'Bu dövrdə hələ maaş çıxışı yoxdur.',
+                { allowDelete: isMaster }
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3 mt-8 pt-6 border-t border-violet-100">
+                <h4 className="text-sm font-semibold text-gray-700">Arxiv (bağlanmış 10–10 dövrlər)</h4>
+                <button
+                  type="button"
+                  onClick={() => setShowArchive((prev) => !prev)}
+                  disabled={(payrollReport.archives?.length || 0) === 0}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed ${
+                    showArchive
+                      ? 'bg-violet-600 text-white hover:bg-violet-500'
+                      : 'bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100'
+                  }`}
+                >
+                  <i className={`bi ${showArchive ? 'bi-eye-slash' : 'bi-archive'}`}></i>
+                  {(payrollReport.archives?.length || 0) === 0
+                    ? 'Arxiv yoxdur'
+                    : showArchive
+                      ? 'Arxivi bağla'
+                      : `Arxivi göstər (${payrollReport.archives.length})`}
+                </button>
+              </div>
+
+              {showArchive && (payrollReport.archives?.length || 0) > 0 && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="text-sm font-semibold text-gray-600">Aya görə arxiv seçimi:</label>
+                    <select
+                      value={selectedArchiveKey}
+                      onChange={(e) => setSelectedArchiveKey(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 min-w-[220px]"
+                    >
+                      <option value="">Hamısı</option>
+                      {payrollReport.archives.map((archive) => (
+                        <option key={archive.periodKey} value={archive.periodKey}>
+                          {archive.label}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedArchiveKey && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedArchiveKey('')}
+                        className="text-sm text-violet-600 hover:text-violet-800 font-semibold"
+                      >
+                        Filtri təmizlə
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    {payrollReport.archives
+                      .filter((archive) => !selectedArchiveKey || archive.periodKey === selectedArchiveKey)
+                      .map((archive) => (
+                        <details
+                          key={archive.periodKey}
+                          open={Boolean(selectedArchiveKey)}
+                          className="group border border-gray-200 rounded-xl overflow-hidden bg-gray-50/50"
+                        >
+                          <summary className="cursor-pointer px-4 py-3 flex flex-wrap items-center justify-between gap-2 hover:bg-gray-100/80">
+                            <div>
+                              <span className="text-xs font-semibold text-gray-500 uppercase">Arxiv</span>
+                              <div className="font-semibold text-gray-800">{archive.label}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-bold text-violet-800">{formatMoney(archive.totalAmount || 0)}</div>
+                              <div className="text-xs text-gray-500">{archive.employees?.length || 0} işçi</div>
+                            </div>
+                          </summary>
+                          <div className="px-3 pb-3 pt-2 border-t border-gray-200 bg-white">
+                            {renderEmployeeAccordion(
+                              archive.employees,
+                              'Bu dövrdə maaş çıxışı yoxdur.',
+                              { allowDelete: isMaster }
+                            )}
+                          </div>
+                        </details>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+      {/* Bu gün üçün xərc əlavə etmə və bu günün xərcləri */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white border rounded-2xl p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-800 mb-3">Bu gün üçün xərc əlavə et</h2>
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">Bu gün üçün məhsul xərci əlavə et</h2>
           <form onSubmit={handleAddExpense} className="space-y-3">
             <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1 block">Xərc adı</label>
+              <label className="text-xs font-semibold text-gray-600 mb-1 block">Məhsul / material adı</label>
               <input
                 type="text"
                 value={expenseName}
                 onChange={e => setExpenseName(e.target.value)}
-                placeholder="Məs: Su, qəzet, təmir..."
+                placeholder="Məs: Un, ət, içki, təmizlik..."
                 className="w-full border px-3 py-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               />
             </div>
@@ -925,7 +1176,7 @@ const AdminFinancePage = () => {
 
         <div className="bg-white border rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-800">Bu günün xərcləri</h2>
+            <h2 className="text-lg font-semibold text-gray-800">Bu günün məhsul xərcləri</h2>
             <span className="text-xs text-gray-500">
               Cəmi: {formatMoney(dayExpense)}
             </span>
@@ -957,7 +1208,7 @@ const AdminFinancePage = () => {
                       <td className="px-3 py-2 text-center">
                         <button
                           type="button"
-                          onClick={() => openDeleteModal(exp._id)}
+                          onClick={() => handleDeleteExpense(exp._id)}
                           className="text-xs text-red-600 hover:text-red-800"
                         >
                           Sil
