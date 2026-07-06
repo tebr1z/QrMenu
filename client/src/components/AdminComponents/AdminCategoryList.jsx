@@ -1,9 +1,33 @@
-import React, { useContext } from 'react'
+import React, { useContext, useState } from 'react'
 import Loading from '../Loading'
 import { ContextAdmin } from '../../context/AdminContext'
+import { ContextUser } from '../../context/CheckUserContext'
+import { toast } from 'react-toastify'
 
 const AdminCategoryList = ({ category, handleModalToggle }) => {
-    const { deleteCategoryFunc, categoryLoading } = useContext(ContextAdmin)
+    const { deleteCategoryFunc, categoryLoading, getCategoriesFunc } = useContext(ContextAdmin)
+    const { apiClient, hasJwtToken } = useContext(ContextUser)
+    const [togglingMenu, setTogglingMenu] = useState(false)
+    const isVisibleInMenu = category.showInCustomerMenu !== false
+
+    const handleToggleCustomerMenu = async () => {
+        if (!hasJwtToken) {
+            toast.error('Səssiyanız bitib. Yenidən daxil olun.')
+            return
+        }
+        setTogglingMenu(true)
+        try {
+            const response = await apiClient.patch(`/Category/ToggleCustomerMenu/${category._id}`)
+            await getCategoriesFunc()
+            toast.success(response.data?.message || 'Görünürlük yeniləndi')
+        } catch (error) {
+            console.error('Toggle category menu visibility error:', error)
+            toast.error(error.response?.data?.error || 'Görünürlük dəyişdirilərkən xəta baş verdi')
+        } finally {
+            setTogglingMenu(false)
+        }
+    }
+
     return (
         <div
             key={category._id}
@@ -37,12 +61,37 @@ const AdminCategoryList = ({ category, handleModalToggle }) => {
             </div>
 
             <div className="flex-1 ml-4 max-[768px]:py-[20px]">
-                <h2 className="text-lg font-semibold text-gray-800">
-                    {category.name}
-                </h2>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-lg font-semibold text-gray-800">
+                        {category.name}
+                    </h2>
+                    {!isVisibleInMenu && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200 text-slate-700">
+                            <i className="bi bi-eye-slash mr-1"></i>
+                            Menyuda gizli
+                        </span>
+                    )}
+                </div>
             </div>
 
             <div className="flex space-x-2">
+                <button
+                    type="button"
+                    onClick={handleToggleCustomerMenu}
+                    disabled={togglingMenu}
+                    title={isVisibleInMenu ? 'Müştəri menyusundan gizlət' : 'Müştəri menyusunda göstər'}
+                    className={`px-3 py-2 rounded transition-colors duration-200 disabled:opacity-50 ${
+                        isVisibleInMenu
+                            ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            : 'bg-violet-100 text-violet-700 hover:bg-violet-200'
+                    }`}
+                >
+                    {togglingMenu ? (
+                        <i className="bi bi-hourglass-split animate-spin"></i>
+                    ) : (
+                        <i className={`bi ${isVisibleInMenu ? 'bi-eye' : 'bi-eye-slash'}`}></i>
+                    )}
+                </button>
                 <button
                     onClick={() => {
                         console.log('Düzəliş et button clicked for category:', category);

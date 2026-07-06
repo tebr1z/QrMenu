@@ -19,6 +19,11 @@ const categorySchema = mongoose.Schema({
         type: Number,
         default: 0,
     },
+    /** false = müştəri QR menyusunda görünmür; admin/kassa tərəfdə aktiv qalır */
+    showInCustomerMenu: {
+        type: Boolean,
+        default: true,
+    },
     createdAt: { type: Date, default: Date.now },
 },
 )

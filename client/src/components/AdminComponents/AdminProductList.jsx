@@ -1,13 +1,17 @@
 import React, { useContext, useState } from 'react'
 import { ContextAdmin } from '../../context/AdminContext'
 import { ContextUser } from '../../context/CheckUserContext'
+import PermissionGate from './PermissionGate'
+import { isMasterAdmin } from '../../config/roles'
 import Loading from '../Loading'
 import { toast } from 'react-toastify'
 
 const AdminProductList = ({ product, handleModalToggle }) => {
-    const { deleteProductFunc, productLoading } = useContext(ContextAdmin)
-    const { apiClient, hasJwtToken } = useContext(ContextUser)
+    const { deleteProductFunc, productLoading, getProductsFunc } = useContext(ContextAdmin)
+    const { apiClient, hasJwtToken, userRole } = useContext(ContextUser)
     const [isDeleting, setIsDeleting] = useState(false)
+    const [togglingMenu, setTogglingMenu] = useState(false)
+    const isVisibleInMenu = product.showInCustomerMenu !== false
     
     // Function to clean HTML for display
     const cleanHtmlForDisplay = (content) => {
@@ -75,6 +79,24 @@ const AdminProductList = ({ product, handleModalToggle }) => {
         handleModalToggle(product);
     };
 
+    const handleToggleCustomerMenu = async () => {
+        if (!hasJwtToken) {
+            toast.error('Səssiyanız bitib. Yenidən daxil olun.');
+            return;
+        }
+        setTogglingMenu(true);
+        try {
+            const response = await apiClient.patch(`/Product/ToggleCustomerMenu/${product._id}`);
+            await getProductsFunc();
+            toast.success(response.data?.message || 'Görünürlük yeniləndi');
+        } catch (error) {
+            console.error('Toggle menu visibility error:', error);
+            toast.error(error.response?.data?.error || 'Görünürlük dəyişdirilərkən xəta baş verdi');
+        } finally {
+            setTogglingMenu(false);
+        }
+    };
+
     const descriptionElement = cleanHtmlForDisplay(product.description);
 
     return (
@@ -112,9 +134,17 @@ const AdminProductList = ({ product, handleModalToggle }) => {
             
             {/* Content */}
             <div className="mt-4 flex-1">
-                <h2 className="text-xl font-bold text-gray-800 mb-2 line-clamp-2">
-                    {product.name}
-                </h2>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                    <h2 className="text-xl font-bold text-gray-800 line-clamp-2 flex-1">
+                        {product.name}
+                    </h2>
+                    {!isVisibleInMenu && (
+                        <span className="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200 text-slate-700">
+                            <i className="bi bi-eye-slash mr-1"></i>
+                            Menyuda gizli
+                        </span>
+                    )}
+                </div>
                 
                 {/* Rich Text Description */}
                 {descriptionElement && (
@@ -146,25 +176,47 @@ const AdminProductList = ({ product, handleModalToggle }) => {
             
             {/* Buttons */}
             <div className="flex mt-4 space-x-2">
-                <button
-                    onClick={handleEdit}
-                    disabled={isDeleting}
-                    className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    <i className="bi bi-pencil-square mr-1"></i>
-                    Düzəliş et
-                </button>
-                <button
-                    onClick={handleDelete}
-                    disabled={isDeleting}
-                    className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {isDeleting ? (
-                        <i className="bi bi-hourglass-split animate-spin"></i>
-                    ) : (
-                        <i className="bi bi-trash"></i>
-                    )}
-                </button>
+                <PermissionGate page="Product" action="edit">
+                    <button
+                        onClick={handleToggleCustomerMenu}
+                        disabled={isDeleting || togglingMenu}
+                        title={isVisibleInMenu ? 'Müştəri menyusundan gizlət' : 'Müştəri menyusunda göstər'}
+                        className={`px-3 py-2 rounded-lg transition-colors duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed ${
+                            isVisibleInMenu
+                                ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                : 'bg-violet-100 text-violet-700 hover:bg-violet-200'
+                        }`}
+                    >
+                        {togglingMenu ? (
+                            <i className="bi bi-hourglass-split animate-spin"></i>
+                        ) : (
+                            <i className={`bi ${isVisibleInMenu ? 'bi-eye' : 'bi-eye-slash'}`}></i>
+                        )}
+                    </button>
+                </PermissionGate>
+                <PermissionGate page="Product" action="edit">
+                    <button
+                        onClick={handleEdit}
+                        disabled={isDeleting}
+                        className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <i className="bi bi-pencil-square mr-1"></i>
+                        Düzəliş et
+                    </button>
+                </PermissionGate>
+                {isMasterAdmin(userRole) && (
+                    <button
+                        onClick={handleDelete}
+                        disabled={isDeleting}
+                        className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isDeleting ? (
+                            <i className="bi bi-hourglass-split animate-spin"></i>
+                        ) : (
+                            <i className="bi bi-trash"></i>
+                        )}
+                    </button>
+                )}
             </div>
             
             {productLoading && <Loading />}

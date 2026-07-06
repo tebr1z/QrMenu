@@ -1,15 +1,23 @@
 import express from 'express';
 import { CheckToken } from '../middleware/CkeckToken.js';
+import { requirePermission } from '../middleware/requirePermission.js';
+import { logAudit } from '../utils/auditLog.js';
 import Category from '../model/CategoryModal.js';
 import { v2 as cloudinary } from "cloudinary";
 const router = express.Router();
 
+function parseBooleanField(val, defaultValue = true) {
+    if (val === undefined || val === null || val === '') return defaultValue;
+    if (val === true || val === 'true') return true;
+    if (val === false || val === 'false') return false;
+    return defaultValue;
+}
 
 router.get("/GetCategory", async (req, res) => {
     try {
         // Optimized: use lean() for better performance
         const categories = await Category.find({})
-            .select("name image imageId order createdAt")
+            .select("name image imageId order showInCustomerMenu createdAt")
             .sort({ order: 1, createdAt: -1 })
             .lean();
         res.status(200).json(categories);
@@ -22,7 +30,7 @@ router.get("/GetCategory", async (req, res) => {
 })
 
 // Update category order - placed before CheckToken middleware
-router.put("/UpdateCategoryOrder", async (req, res) => {
+router.put("/UpdateCategoryOrder", CheckToken, requirePermission('Category', 'edit'), async (req, res) => {
     try {
         const { categories } = req.body;
         
@@ -52,14 +60,14 @@ router.put("/UpdateCategoryOrder", async (req, res) => {
 // Temporarily disable CheckToken for UpdateCategoryOrder route
 // router.use(CheckToken);
 
-router.post("/AddCategory", async (req, res) => {
+router.post("/AddCategory", CheckToken, requirePermission('Category', 'edit'), async (req, res) => {
     // Log the request for debugging
     console.log('=== AddCategory Request ===');
     console.log('Request body:', req.body);
     console.log('Request files:', req.files);
     console.log('Files keys:', req.files ? Object.keys(req.files) : 'No files');
     
-    const { name } = req.body;
+    const { name, showInCustomerMenu } = req.body;
     let imageCategory = req.files && req.files.imageCategory;
     let imageId = null;
     
@@ -120,21 +128,25 @@ router.post("/AddCategory", async (req, res) => {
         const newCategory = new Category({
             name,
             image: imageCategory ? imageCategory : undefined,
-            imageId
+            imageId,
+            showInCustomerMenu: parseBooleanField(showInCustomerMenu, true),
         });
         await newCategory.save();
         
-        console.log('Saved category from database:', newCategory);
-        console.log('Category image field:', newCategory.image);
-        console.log('Category imageId field:', newCategory.imageId);
-        
+        await logAudit(req, {
+            action: 'create',
+            resource: 'Category',
+            resourceId: newCategory._id,
+            summary: `Kateqoriya əlavə edildi: ${newCategory.name}`,
+        });
+
         res.status(201).json({ message: "Kateqoriya əlavə edildi", newCategory });
     } catch (error) {
         console.log(error)
     }
 })
 
-router.put("/UpdateCategory/:id", async (req, res) => {
+router.put("/UpdateCategory/:id", CheckToken, requirePermission('Category', 'edit'), async (req, res) => {
     // Log the request for debugging
     console.log('=== UpdateCategory Request ===');
     console.log('Category ID:', req.params.id);
@@ -143,7 +155,7 @@ router.put("/UpdateCategory/:id", async (req, res) => {
     console.log('Files keys:', req.files ? Object.keys(req.files) : 'No files');
     
     const { id } = req.params;
-    const { name } = req.body;
+    const { name, showInCustomerMenu } = req.body;
     let imageCategory = req.files && req.files.imageCategory;
 
     let updateCategory = {};
@@ -157,6 +169,9 @@ router.put("/UpdateCategory/:id", async (req, res) => {
         updateCategory.name = name;
     } else {
         return res.status(422).json({ error: "Zəhmət olmasa, bir ad daxil edin" });
+    }
+    if (req.body.showInCustomerMenu !== undefined) {
+        updateCategory.showInCustomerMenu = parseBooleanField(req.body.showInCustomerMenu, true);
     }
     if (imageCategory) {
 
@@ -203,9 +218,12 @@ router.put("/UpdateCategory/:id", async (req, res) => {
             return res.status(404).json({ message: "Kateqoriya tapılmadı" });
         }
 
-        console.log('Updated category from database:', category);
-        console.log('Category image field:', category.image);
-        console.log('Category imageId field:', category.imageId);
+        await logAudit(req, {
+            action: 'update',
+            resource: 'Category',
+            resourceId: category._id,
+            summary: `Kateqoriya yeniləndi: ${category.name}`,
+        });
 
         res.status(200).json({ message: " Kateqoriya yeniləndi", category });
 
@@ -217,7 +235,41 @@ router.put("/UpdateCategory/:id", async (req, res) => {
 
 })
 
-router.delete("/DeleteCategory/:id", async (req, res) => {
+router.patch("/ToggleCustomerMenu/:id", CheckToken, requirePermission('Category', 'edit'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const existing = await Category.findById(id);
+        if (!existing) {
+            return res.status(404).json({ error: 'Kateqoriya tapılmadı' });
+        }
+        const nextVisible = existing.showInCustomerMenu === false;
+        const category = await Category.findByIdAndUpdate(
+            id,
+            { showInCustomerMenu: nextVisible },
+            { new: true }
+        );
+
+        await logAudit(req, {
+            action: 'update',
+            resource: 'Category',
+            resourceId: category._id,
+            summary: nextVisible
+                ? `Kateqoriya müştəri menyusunda göstərilir: ${category.name}`
+                : `Kateqoriya müştəri menyusundan gizlədildi: ${category.name}`,
+        });
+
+        res.status(200).json({
+            message: nextVisible ? 'Müştəri menyusunda göstərilir' : 'Müştəri menyusundan gizlədildi',
+            showInCustomerMenu: nextVisible,
+            category,
+        });
+    } catch (error) {
+        console.error('ToggleCustomerMenu error:', error);
+        res.status(500).json({ error: 'Görünürlük dəyişdirilərkən xəta baş verdi' });
+    }
+});
+
+router.delete("/DeleteCategory/:id", CheckToken, requirePermission('Category', 'delete'), async (req, res) => {
     try {
         const { id } = req.params;
         const categoryImage = await Category.findById(id);
@@ -234,6 +286,14 @@ router.delete("/DeleteCategory/:id", async (req, res) => {
         if (!category) {
             return res.status(404).json({ message: "Kateqoriya tapılmadı" });
         }
+
+        await logAudit(req, {
+            action: 'delete',
+            resource: 'Category',
+            resourceId: categoryImage._id,
+            summary: `Kateqoriya silindi: ${categoryImage.name}`,
+        });
+
         res.status(200).json({ message: "Kateqoriya silindi" });
     } catch (error) {
         console.log(error)

@@ -1,10 +1,15 @@
-import React, { useContext, useState, useEffect } from 'react'
+import React, { useContext, useState, useEffect, useMemo } from 'react'
 import FoodCadr from '../components/FoodCadr'
 import { ContextAdmin } from '../context/AdminContext'
 import Loading from '../components/Loading'
 
 const Home = () => {
     const { categories, products } = useContext(ContextAdmin)
+
+    const visibleCategories = useMemo(
+        () => categories.filter((cat) => cat.showInCustomerMenu !== false),
+        [categories]
+    )
 
     const [filterCategory, setfilterCategory] = useState([])
     const [filterInput, setfilterInput] = useState('')
@@ -29,20 +34,20 @@ const Home = () => {
         if (filterInput.trim() === '') {
             setfilterCategory([])
         } else {
-            const filterResponse = categories.filter((cat) =>
+            const filterResponse = visibleCategories.filter((cat) =>
                 normalizeString(cat.name.toLowerCase()).includes(normalizeString(filterInput.toLowerCase()))
             )
             setfilterCategory(filterResponse)
         }
-    }, [filterInput, categories])
+    }, [filterInput, visibleCategories])
 
     // Show loading if categories or products are not loaded yet
-    if (categories.length === 0 || !products) {
+    if (!categories || !products) {
         return <Loading />
     }
 
     return (
-        <div className='pb-[100px]'>
+        <div className='pb-[11rem] sm:pb-[100px]'>
             <div className='px-[20px]'>
                 {/* heading removed as requested */}
                 <div className="max-w-md mx-auto pt-[10px]">
@@ -92,7 +97,7 @@ const Home = () => {
                             filterCategory.map((item) => (
                                 <FoodCadr key={item._id || item.id || item.name} item={item} />
                             )) :
-                            categories && categories.map((item) => (
+                            visibleCategories.map((item) => (
                                 <FoodCadr key={item._id || item.id || item.name} item={item} />
                             ))
                     }

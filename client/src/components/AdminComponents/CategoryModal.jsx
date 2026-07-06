@@ -25,6 +25,7 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory, onC
 
     // change input category
     const [categoryInput, setCategoryInput] = useState('')
+    const [showInCustomerMenu, setShowInCustomerMenu] = useState(true)
     const handeleChangeInput = (e) => {
         setCategoryInput(e.target.value)
     }
@@ -35,6 +36,7 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory, onC
         if (editCategory) {
             console.log('Setting form data for editing category:', editCategory);
             setCategoryInput(editCategory.name || '');
+            setShowInCustomerMenu(editCategory.showInCustomerMenu !== false);
             setSelectedImage({
                 imageUrl: editCategory.image || null,
                 imageFile: null,
@@ -42,6 +44,7 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory, onC
         } else {
             console.log('Setting form data for new category');
             setCategoryInput('')
+            setShowInCustomerMenu(true)
             setSelectedImage({
                 imageUrl: null,
                 imageFile: null,
@@ -68,6 +71,21 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory, onC
                     placeholder="Kateqoriya adını daxil edin"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-orange-500 focus:outline-none"
                 />
+
+                <label className="flex items-start gap-3 cursor-pointer mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <input
+                        type="checkbox"
+                        checked={showInCustomerMenu}
+                        onChange={(e) => setShowInCustomerMenu(e.target.checked)}
+                        className="w-4 h-4 mt-0.5 text-orange-500 border-gray-300 rounded focus:ring-orange-500"
+                    />
+                    <div>
+                        <span className="text-sm font-medium text-gray-800">Müştəri menyusunda göstər</span>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Söndürsəniz kateqoriya QR menyuda görünməz, admin və kassada qalır.
+                        </p>
+                    </div>
+                </label>
 
                 {/* Image Upload Section */}
                 <label
@@ -128,6 +146,7 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory, onC
                                 const updateResult = await updateCategoryFunc(editCategory._id, {
                                     name: categoryInput,
                                     imageFile: selectedImage.imageFile,
+                                    showInCustomerMenu,
                                 })
                                 console.log('Update category result:', updateResult);
                                 setSelectedImage({
@@ -152,6 +171,7 @@ const CategoryModal = ({ isOpen, setIsOpen, handleModalToggle, editCategory, onC
                                 const addResult = await addCategoryFunc({
                                     name: categoryInput,
                                     imageFile: selectedImage.imageFile,
+                                    showInCustomerMenu,
                                 })
                                 console.log('Add category result:', addResult);
                                 setSelectedImage({
