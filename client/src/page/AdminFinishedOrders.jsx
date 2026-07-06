@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { createApiClient } from '../utils/http';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API || '/api',
-});
+const apiClient = createApiClient();
 
 const AdminFinishedOrders = () => {
   const [orders, setOrders] = useState([]);
@@ -18,7 +16,7 @@ const AdminFinishedOrders = () => {
       setLoading(true);
       try {
         const url = date ? `/order/GetOrders?date=${date}` : '/order/GetOrders';
-        const res = await api.get(url);
+        const res = await apiClient.get(url);
         setOrders(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
         setError('Sifarişlər yüklənmədi');

@@ -1,10 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
-import { MASTER_ADMIN_PASSWORD } from '../../config/auth';
+import { createApiClient } from '../../utils/http';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API || '/api',
-});
+const apiClient = createApiClient();
 
 const RANGE_OPTIONS = [
   { key: 'today', label: 'Günlük', days: 0 },
@@ -21,41 +18,14 @@ const AdminSoldProductsPage = () => {
   const [customEnd, setCustomEnd] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState('revenue_desc');
-  const [showAmounts, setShowAmounts] = useState(false);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [passwordError, setPasswordError] = useState('');
 
-  const handleUnlockAmounts = (event) => {
-    event.preventDefault();
-    if (passwordInput === MASTER_ADMIN_PASSWORD) {
-      setShowAmounts(true);
-      setShowPasswordModal(false);
-      setPasswordInput('');
-      setPasswordError('');
-    } else {
-      setPasswordError('Şifrə yanlışdır');
-    }
-  };
-
-  const handleToggleAmounts = () => {
-    if (showAmounts) {
-      setShowAmounts(false);
-      return;
-    }
-    setShowPasswordModal(true);
-  };
-
-  const formatMoney = (value) => {
-    if (!showAmounts) return '*****';
-    return `${value.toFixed(2)}₼`;
-  };
+  const formatMoney = (value) => `${value.toFixed(2)}₼`;
 
   useEffect(() => {
     const fetchOrders = async () => {
       setLoading(true);
       try {
-        const res = await api.get('/order/GetOrders');
+        const res = await apiClient.get('/order/GetOrders');
         setOrders(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
         setOrders([]);
@@ -263,67 +233,9 @@ const AdminSoldProductsPage = () => {
             <i className="bi bi-cash-coin text-green-600 text-xl"></i>
             Cəmi:
             <span className="ml-2">{formatMoney(summary.totalRevenue)}</span>
-            <button
-              type="button"
-              onClick={handleToggleAmounts}
-              className="ml-2 text-gray-600 hover:text-gray-900 transition"
-              title={showAmounts ? 'Gizlə' : 'Məbləği göstər'}
-            >
-              <i className={`bi ${showAmounts ? 'bi-eye-slash-fill' : 'bi-eye-fill'} text-xl`}></i>
-            </button>
           </div>
         </div>
       </div>
-
-      {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm bg-gray-900 text-white rounded-2xl shadow-xl p-6 border border-gray-700">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-gray-800 rounded-full p-2">
-                <i className="bi bi-shield-lock text-orange-400 text-xl"></i>
-              </div>
-              <div>
-                <div className="text-lg font-semibold">Şifrə tələb olunur</div>
-                <div className="text-xs text-gray-400">Məbləği görmək üçün daxil olun</div>
-              </div>
-            </div>
-            <form onSubmit={handleUnlockAmounts} className="space-y-4">
-              <input
-                type="password"
-                inputMode="numeric"
-                autoFocus
-                value={passwordInput}
-                onChange={e => {
-                  setPasswordInput(e.target.value);
-                  setPasswordError('');
-                }}
-                placeholder="****"
-                className="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 text-center text-2xl tracking-widest focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-              {passwordError && <div className="text-sm text-red-400">{passwordError}</div>}
-              <div className="flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowPasswordModal(false);
-                    setPasswordInput('');
-                    setPasswordError('');
-                  }}
-                  className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm font-semibold"
-                >
-                  Ləğv et
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-sm font-semibold"
-                >
-                  Aç
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {loading && <div className="text-gray-500 mb-4">Yüklənir...</div>}
       {!loading && summary.rows.length === 0 && (

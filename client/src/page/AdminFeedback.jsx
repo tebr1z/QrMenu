@@ -1,11 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
-import axios from 'axios';
 import { ContextUser } from '../context/CheckUserContext';
 import Loading from '../components/Loading';
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API || '/api',
-});
 
 const AdminFeedback = () => {
   const { apiClient } = useContext(ContextUser);

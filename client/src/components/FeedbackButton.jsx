@@ -1,10 +1,6 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import { publicApi } from '../utils/http';
 import { toast } from 'react-toastify';
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API || '/api',
-});
 
 const FeedbackButton = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -24,7 +20,7 @@ const FeedbackButton = () => {
 
     setIsSubmitting(true);
     try {
-      const response = await api.post('/feedback', {
+      const response = await publicApi.post('/feedback', {
         foodRating,
         cleanlinessRating,
         staffRating,

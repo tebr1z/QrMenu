@@ -8,7 +8,8 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 
 import AllRoutes from "./AllRoutes.js";
-import { startKassaCron } from './kassaCron.js';
+// Gecə 03:00 kassa cron söndürülüb – pul Bitir basılanda birbaşa kassaya əlavə olunur
+// import { startKassaCron } from './kassaCron.js';
 
 // start connection
 import { connectMongoDb } from './connection/DbConnection.js';
@@ -49,7 +50,7 @@ app.listen(PORT, async () => {
     try {
         await connectMongoDb();
         ClodinaryConnection();
-        startKassaCron();
+        // startKassaCron(); // Pul Bitir basılanda kassaya əlavə olunur
         console.log(`Server is running on port ${PORT}`);
     } catch (error) {
         console.log(error)

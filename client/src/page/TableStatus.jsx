@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
+import { createApiClient, fetchAllSettled } from '../utils/http';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API || '/api',
-});
+const apiClient = createApiClient();
 
 const TableStatus = () => {
   const [tables, setTables] = useState([]);
@@ -14,12 +12,13 @@ const TableStatus = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [tablesRes, sessionsRes] = await Promise.all([
-          api.get('/table/GetTables'),
-          api.get('/tablesession/Active'),
+        const settled = await fetchAllSettled([
+          apiClient.get('/table/GetTables'),
+          apiClient.get('/tablesession/Active'),
         ]);
-        setTables(Array.isArray(tablesRes.data) ? tablesRes.data : []);
-        setSessions(Array.isArray(sessionsRes.data) ? sessionsRes.data : []);
+        const [tablesRes, sessionsRes] = settled;
+        setTables(tablesRes.ok && Array.isArray(tablesRes.data) ? tablesRes.data : []);
+        setSessions(sessionsRes.ok && Array.isArray(sessionsRes.data) ? sessionsRes.data : []);
       } catch (error) {
         setTables([]);
         setSessions([]);

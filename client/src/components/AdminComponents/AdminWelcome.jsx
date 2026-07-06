@@ -1,12 +1,24 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import React from 'react'
 import { motion } from "framer-motion";
+import { useNavigate } from 'react-router-dom';
+import { ContextUser } from '../../context/CheckUserContext';
+import { getDefaultAdminRoute, canAccessRoute } from '../../config/roles';
 
 const AdminWelcome = () => {
     const [adminName, setadminName] = useState('')
+    const { userRole, userPermissions } = useContext(ContextUser);
+    const navigate = useNavigate();
+
     useEffect(() => {
         setadminName(localStorage.getItem('userName'))
     }, [])
+
+    useEffect(() => {
+        if (userRole && !canAccessRoute(userRole, userPermissions, 'Welcome')) {
+            navigate(getDefaultAdminRoute(userRole, userPermissions), { replace: true });
+        }
+    }, [userRole, userPermissions, navigate]);
 
     return (
         <div className="flex items-center justify-center h-[100vh]  w-full">

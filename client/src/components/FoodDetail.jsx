@@ -27,7 +27,16 @@ const FoodDetail = ({ item }) => {
                 <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-3">
                         <p className="text-[15px] md:text-[16px] font-semibold text-gray-800 break-words text-left">{item.name}</p>
-                        <p className="text-[14px] md:text-[15px] font-bold text-black whitespace-nowrap">{item.price} AZN</p>
+                        <div className="whitespace-nowrap text-right">
+                            {item.oldPrice != null && Number(item.oldPrice) > 0 ? (
+                                <>
+                                    <span className="text-[13px] md:text-[14px] text-black line-through mr-1">{Number(item.oldPrice)} AZN</span>
+                                    <span className="text-[14px] md:text-[15px] font-bold text-red-600">{item.price} AZN</span>
+                                </>
+                            ) : (
+                                <span className="text-[14px] md:text-[15px] font-bold text-black">{item.price} AZN</span>
+                            )}
+                        </div>
                     </div>
                     {item.description && (
                         <div className="text-left break-words text-[13px] md:text-[14px] mt-1 leading-relaxed text-gray-600" dangerouslySetInnerHTML={{ __html: item.description }} />

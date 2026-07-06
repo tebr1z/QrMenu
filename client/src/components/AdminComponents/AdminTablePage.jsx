@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { createApiClient } from '../../utils/http';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API || '/api',
-});
+const apiClient = createApiClient();
 
 // Dummy menu data for UI
 const menuItems = [
@@ -34,7 +32,7 @@ const AdminTablePage = () => {
     const fetchTables = async () => {
       setLoading(true);
       try {
-        const res = await api.get('/table/GetTables');
+        const res = await apiClient.get('/table/GetTables');
         setTables(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
         setError('Masalar yüklənmədi');
@@ -50,7 +48,7 @@ const AdminTablePage = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.post('/table/AddTable', {
+      const res = await apiClient.post('/table/AddTable', {
         name: tableName,
         hourlyPrice: Number(hourlyPrice),
         ps3Price: ps3Price ? Number(ps3Price) : 0,
@@ -76,7 +74,7 @@ const AdminTablePage = () => {
     setLoading(true);
     setError('');
     try {
-      await api.delete(`/table/DeleteTable/${id}`);
+      await apiClient.delete(`/table/DeleteTable/${id}`);
       setTables(tables.filter(table => (table.id || table._id) !== id));
     } catch (err) {
       setError('Masa silinərkən xəta baş verdi');
@@ -99,7 +97,7 @@ const AdminTablePage = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.put(`/table/UpdateTable/${editId}`, {
+      const res = await apiClient.put(`/table/UpdateTable/${editId}`, {
         name: editName,
         hourlyPrice: Number(editHourlyPrice),
         ps3Price: editPs3Price ? Number(editPs3Price) : 0,

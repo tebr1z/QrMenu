@@ -1,41 +1,23 @@
 import React, { useContext, useEffect, useState } from 'react';
 import HeaderAdmin from '../components/HeaderAdmin';
 import Sidebar from '../components/AdminComponents/Sidebar';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { ContextUser } from '../context/CheckUserContext';
 import Loading from '../components/Loading';
+import LowStockNotifier from '../components/AdminComponents/LowStockNotifier';
 
 const Admin = () => {
-    const { hasJwtToken, checkJwtToken } = useContext(ContextUser)
-    const [loading, setLoading] = useState(true);
+    const { hasJwtToken, authReady } = useContext(ContextUser);
+    const location = useLocation();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-    const navigate = useNavigate();
 
-    useEffect(() => {
-        // Check authentication status
-        const checkAuth = () => {
-            const isAuthenticated = checkJwtToken();
-            if (!isAuthenticated) {
-                window.location.href = '/Sign';
-            } else {
-                setLoading(false);
-            }
-        };
-
-        // Add a small delay to allow context to initialize
-        const timer = setTimeout(checkAuth, 100);
-
-        return () => clearTimeout(timer);
-    }, [checkJwtToken]);
-
-    // Show loading while checking session
-    if (loading) {
+    if (!authReady) {
         return <Loading />;
     }
 
-    // Don't render anything if not authenticated
     if (!hasJwtToken) {
+        window.location.href = '/Sign';
         return null;
     }
 
@@ -67,7 +49,8 @@ const Admin = () => {
                         </span>
                     </button>
                 </div>
-                <Outlet />
+                <Outlet key={location.pathname} />
+                <LowStockNotifier />
             </div>
         </div>
     );

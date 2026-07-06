@@ -1,10 +1,43 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
-import axios from 'axios';
 import { ContextUser } from '../../context/CheckUserContext';
+import { fetchAllSettled } from '../../utils/http';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API || '/api',
-});
+/** UI və hesablama üçün: PS növünə görə masanın ps3/ps4/ps5 qiyməti (mövcuddursa), yoxsa session/table əsas qiymət. `||` ilə 0 itkisi olmasın. */
+function getDisplayHourlyPrice(session, table) {
+  const fromSession = (s) => {
+    const sh = s?.hourlyPrice;
+    if (sh != null && sh !== '' && !Number.isNaN(Number(sh))) return Number(sh);
+    return null;
+  };
+  if (!session) return table ? Number(table.hourlyPrice) || 0 : 0;
+  if (!table) return fromSession(session) ?? 0;
+  const pt = session.psType;
+  if (pt === 'PS3' && Number(table.ps3Price) > 0) return Number(table.ps3Price);
+  if (pt === 'PS4' && Number(table.ps4Price) > 0) return Number(table.ps4Price);
+  if (pt === 'PS5' && Number(table.ps5Price) > 0) return Number(table.ps5Price);
+  return fromSession(session) ?? (Number(table.hourlyPrice) || 0);
+}
+
+/** Menyu sətri üçün açar: əlavə xidmət/Əlavə pult üçün extraId üstünlüklü (UI ilə handleDecrease uyğun olsun) */
+function getSessionMenuItemKey(item) {
+  if (!item) return '';
+  if (item.extraId != null && item.extraId !== '') return String(item.extraId);
+  if (item._id != null && item._id !== '') return String(item._id);
+  if (item.id != null && item.id !== '') return String(item.id);
+  return '';
+}
+
+async function logTableActivity(apiClient, summary, details = {}, resource = 'TableManage') {
+  try {
+    await apiClient.post('/audit/activity', { summary, details, resource });
+  } catch {
+    // jurnal uğursuz olsa masa işi dayanmasın
+  }
+}
+
+function getStaffName() {
+  return localStorage.getItem('userName') || 'İşçi';
+}
 
 const AdminTableManagePage = () => {
   const { apiClient } = useContext(ContextUser);
@@ -369,28 +402,49 @@ const AdminTableManagePage = () => {
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
+      let failedCount = 0;
       try {
-        const [tablesRes, sessionsRes, productsRes, categoriesRes, extraServicesRes, configRes] = await Promise.all([
-          api.get('/table/GetTables'),
-          api.get('/tablesession/Active'),
-          api.get('/Product/GetProduct'),
-          api.get('/Category/GetCategory'),
-          api.get('/extraservice'),
-          api.get('/config/extraConsolePrice'),
+        const settled = await fetchAllSettled([
+          apiClient.get('/table/GetTables'),
+          apiClient.get('/tablesession/Active'),
+          apiClient.get('/Product/GetProduct'),
+          apiClient.get('/Category/GetCategory'),
+          apiClient.get('/extraservice'),
+          apiClient.get('/config/extraConsolePrice'),
         ]);
-        
-        // Categories loaded successfully
-        setTables(Array.isArray(tablesRes.data) ? tablesRes.data : []);
-        
-        // Use backend sessions as the source of truth
-        const backendSessions = Array.isArray(sessionsRes.data) ? sessionsRes.data : [];
-        setSessions(backendSessions);
-        setProducts(Array.isArray(productsRes.data) ? productsRes.data : []);
-        setCategories(Array.isArray(categoriesRes.data) ? categoriesRes.data : []);
-        setExtraServiceList(Array.isArray(extraServicesRes.data) ? extraServicesRes.data : []);
-        const consoleVal = configRes.data?.value;
-        if (consoleVal !== null && consoleVal !== undefined && !isNaN(Number(consoleVal))) {
-          setExtraConsolePrice(Number(consoleVal));
+
+        const [tablesRes, sessionsRes, productsRes, categoriesRes, extraServicesRes, configRes] = settled;
+
+        if (tablesRes.ok) {
+          setTables(Array.isArray(tablesRes.data) ? tablesRes.data : []);
+        } else failedCount += 1;
+
+        if (sessionsRes.ok) {
+          setSessions(Array.isArray(sessionsRes.data) ? sessionsRes.data : []);
+        } else failedCount += 1;
+
+        if (productsRes.ok) {
+          setProducts(Array.isArray(productsRes.data) ? productsRes.data : []);
+        } else failedCount += 1;
+
+        if (categoriesRes.ok) {
+          setCategories(Array.isArray(categoriesRes.data) ? categoriesRes.data : []);
+        } else failedCount += 1;
+
+        if (extraServicesRes.ok) {
+          setExtraServiceList(Array.isArray(extraServicesRes.data) ? extraServicesRes.data : []);
+        } else failedCount += 1;
+
+        if (configRes.ok) {
+          const consoleVal = configRes.data?.value;
+          if (consoleVal !== null && consoleVal !== undefined && !isNaN(Number(consoleVal))) {
+            setExtraConsolePrice(Number(consoleVal));
+          }
+        } else failedCount += 1;
+
+        if (failedCount > 0) {
+          setNotification(`${failedCount} məlumat qismən yüklənmədi — səhifəni yeniləyin`);
+          setNotificationType('warning');
         }
       } catch (err) {
         console.error('Data fetch error:', err);
@@ -401,7 +455,7 @@ const AdminTableManagePage = () => {
       }
     };
     fetchAll();
-  }, []);
+  }, [apiClient]);
 
 
   // Timer effect for active sessions - optimized to prevent unnecessary re-renders
@@ -444,7 +498,7 @@ const AdminTableManagePage = () => {
             // Only update backend every 30 seconds to reduce API calls
             if (elapsedSeconds % 30 === 0 && elapsedSeconds > 0) {
               updatePromises.push(
-                api.put(`/tablesession/${session._id}/timer`, {
+                apiClient.put(`/tablesession/${session._id}/timer`, {
                   timer: elapsedSeconds
                 }).catch(() => {
                   // Silently handle errors - timer update is not critical
@@ -537,10 +591,16 @@ const AdminTableManagePage = () => {
         }] : []
       };
 
-      const response = await api.post('/tablesession/Start', newSession);
+      const response = await apiClient.post('/tablesession/Start', newSession);
       const savedSession = response.data.session;
       
       setSessions(prev => [...prev, savedSession]);
+
+      await logTableActivity(apiClient, `${getStaffName()} — ${table.name} masasını açdı`, {
+        type: 'open_table',
+        tableId: table.id || table._id,
+        tableName: table.name,
+      });
       
       if (psType) {
         setNotification(`Session başladıldı (${psType}, ${hourlyPrice}₼/saat)`);
@@ -586,23 +646,24 @@ const AdminTableManagePage = () => {
         hourlyPrice = table.ps5Price;
       }
 
-      // Update PS type via backend
-      await api.put(`/tablesession/${session._id}/changePS`, {
+      // Server psHistory-ni yeniləyir (köhnə PS dövrünü bağlayır, yenisini əlavə edir).
+      // Əvvəlki kod yalnız köhnə psHistory-ni saxlayırdı — hesablama həmişə ilk PS qiyməti ilə gedirdi.
+      const res = await apiClient.put(`/tablesession/${session._id}/changePS`, {
         psType: psType,
         hourlyPrice: hourlyPrice
       });
-
-      // Update local session
-      setSessions(prev => prev.map(s => 
-        s._id === session._id 
-          ? { 
-              ...s, 
-              psType: psType, 
-              hourlyPrice: hourlyPrice,
-              psHistory: s.psHistory ? [...s.psHistory] : []
-            }
-          : s
-      ));
+      const updatedSession = res.data?.session;
+      if (updatedSession) {
+        setSessions(prev =>
+          prev.map(s => (s._id === session._id ? updatedSession : s))
+        );
+      } else {
+        setSessions(prev =>
+          prev.map(s =>
+            s._id === session._id ? { ...s, psType, hourlyPrice } : s
+          )
+        );
+      }
 
       setChangePSModal(null);
       setNotification(`${psType} seçildi, qiymət: ${hourlyPrice}₼/saat`);
@@ -624,6 +685,14 @@ const AdminTableManagePage = () => {
   const handleAddMenuToSession = async (sessionId, menuId) => {
     const selectedProduct = products.find(item => (item._id === menuId || item.id === Number(menuId)));
     if (!selectedProduct) return;
+
+    const prevSession = sessions.find(s => s._id === sessionId);
+    const existingItemIndex = prevSession?.selectedMenu?.findIndex(
+      item => (item._id || item.id) === (selectedProduct._id || selectedProduct.id)
+    ) ?? -1;
+    const newQuantity = existingItemIndex >= 0
+      ? (prevSession.selectedMenu[existingItemIndex].quantity || 1) + 1
+      : 1;
 
     const updatedSessions = sessions.map(s => {
       if (s._id === sessionId) {
@@ -662,7 +731,7 @@ const AdminTableManagePage = () => {
       if (hasMenuFreeTime && !session.countdownStarted && !hasSetFreeTime) {
         const now = Date.now();
         try {
-          await api.put(`/tablesession/${sessionId}/update`, {
+          await apiClient.put(`/tablesession/${sessionId}/update`, {
             selectedSet: session.selectedSet || null,
             setFreeMinutes: session.setFreeMinutes || null,
             selectedHours: null,
@@ -687,13 +756,19 @@ const AdminTableManagePage = () => {
     try {
       const session = updatedSessions.find(s => s._id === sessionId);
       if (session) {
-        const response = await api.put(`/tablesession/${sessionId}/menu`, {
+        const response = await apiClient.put(`/tablesession/${sessionId}/menu`, {
           selectedMenu: session.selectedMenu
         });
         const savedSession = response.data?.session;
         if (savedSession && savedSession._id) {
           setSessions(prev => prev.map(s => (s._id === savedSession._id ? savedSession : s)));
         }
+        await logTableActivity(apiClient, `${getStaffName()} — ${session.tableName}: ${selectedProduct.name} (×${newQuantity})`, {
+          type: 'add_product',
+          tableName: session.tableName,
+          productName: selectedProduct.name,
+          quantity: newQuantity,
+        });
       }
     } catch (err) {
       // Error updating menu in backend
@@ -713,7 +788,7 @@ const AdminTableManagePage = () => {
     const price = Number(extraServicePrice) || 0;
     if (!name) return;
     try {
-      const res = await api.post('/extraservice', { name, price });
+      const res = await apiClient.post('/extraservice', { name, price });
       const created = res.data?.service;
       if (created) {
         setExtraServiceList(prev => [created, ...prev]);
@@ -737,7 +812,7 @@ const AdminTableManagePage = () => {
       return;
     }
     try {
-      await api.delete(`/extraservice/${service._id}`);
+      await apiClient.delete(`/extraservice/${service._id}`);
       setExtraServiceList(prev => prev.filter((_, idx) => idx !== index));
     } catch (err) {
       setNotification('Əlavə xidmət silinmədi');
@@ -776,7 +851,7 @@ const AdminTableManagePage = () => {
     try {
       const session = updatedSessions.find(s => s._id === sessionId);
       if (session) {
-        const response = await api.put(`/tablesession/${sessionId}/menu`, {
+        const response = await apiClient.put(`/tablesession/${sessionId}/menu`, {
           selectedMenu: session.selectedMenu
         });
         const savedSession = response.data?.session;
@@ -811,7 +886,7 @@ const AdminTableManagePage = () => {
     if (priceNum < 0) return;
     setSavingConsolePrice(true);
     try {
-      await api.put('/config/extraConsolePrice', { value: priceNum });
+      await apiClient.put('/config/extraConsolePrice', { value: priceNum });
       setNotification('Əlavə pult qiyməti yadda saxlanıldı');
       setNotificationType('info');
       setTimeout(() => {
@@ -836,8 +911,7 @@ const AdminTableManagePage = () => {
       if (s._id === sessionId) {
         const updatedMenu = s.selectedMenu
           .map(item => {
-            const itemId = item._id || item.id || item.extraId;
-            if (itemId != null && String(itemId) === String(menuId)) {
+            if (getSessionMenuItemKey(item) === String(menuId)) {
               const currentQuantity = item.quantity || 1;
               if (currentQuantity > 1) {
                 // Decrease quantity
@@ -864,7 +938,7 @@ const AdminTableManagePage = () => {
     try {
       const session = updatedSessions.find(s => s._id === sessionId);
       if (session) {
-        await api.put(`/tablesession/${sessionId}/menu`, {
+        await apiClient.put(`/tablesession/${sessionId}/menu`, {
           selectedMenu: session.selectedMenu
         });
         setNotification('Menyu backend-dən də silindi');
@@ -888,8 +962,7 @@ const AdminTableManagePage = () => {
     const updatedSessions = sessions.map(s => {
       if (s._id === sessionId) {
         const updatedMenu = s.selectedMenu.map(item => {
-          const itemId = item._id || item.id || item.extraId;
-          if (itemId != null && String(itemId) === String(menuId)) {
+          if (getSessionMenuItemKey(item) === String(menuId)) {
             return { ...item, quantity: (item.quantity || 1) + 1 };
           }
           return item;
@@ -904,7 +977,7 @@ const AdminTableManagePage = () => {
     try {
       const session = updatedSessions.find(s => s._id === sessionId);
       if (session) {
-        await api.put(`/tablesession/${sessionId}/menu`, {
+        await apiClient.put(`/tablesession/${sessionId}/menu`, {
           selectedMenu: session.selectedMenu
         });
       }
@@ -919,8 +992,7 @@ const AdminTableManagePage = () => {
       if (s._id === sessionId) {
         const updatedMenu = s.selectedMenu
           .map(item => {
-            const itemId = item._id || item.id || item.extraId;
-            if (itemId != null && String(itemId) === String(menuId)) {
+            if (getSessionMenuItemKey(item) === String(menuId)) {
               const currentQuantity = item.quantity || 1;
               if (currentQuantity > 1) {
                 return { ...item, quantity: currentQuantity - 1 };
@@ -941,7 +1013,7 @@ const AdminTableManagePage = () => {
     try {
       const session = updatedSessions.find(s => s._id === sessionId);
       if (session) {
-        await api.put(`/tablesession/${sessionId}/menu`, {
+        await apiClient.put(`/tablesession/${sessionId}/menu`, {
           selectedMenu: session.selectedMenu
         });
       }
@@ -951,19 +1023,20 @@ const AdminTableManagePage = () => {
   };
 
   // Finish session: delete from backend, add to finished orders
-  const handleFinish = async (session) => {
+  const handleFinish = async (sessionFromClick) => {
     // Prevent multiple simultaneous calls
     if (isFinishingSession.current || loading) {
       // Session already being finished
       return;
     }
     
-    // Check if session still exists
-    const currentSession = sessions.find(s => s._id === session._id);
+    // Check if session still exists — hesablama üçün həmişə state-dəki ən son session (psHistory, psType düzgün olsun)
+    const currentSession = sessions.find(s => s._id === sessionFromClick._id);
     if (!currentSession) {
       // Session no longer exists
       return;
     }
+    const session = currentSession;
     
     isFinishingSession.current = true;
     setLoading(true);
@@ -974,8 +1047,9 @@ const AdminTableManagePage = () => {
       
       // Get table to access PS prices
       const table = tables.find(t => (t.id || t._id) === session.tableId);
-      
-      // Calculate free minutes from menu items and PS price difference (needed for psHistory calculation)
+      const effectiveHourlyPrice = getDisplayHourlyPrice(session, table);
+
+      // Calculate free minutes from menu items and PS price difference
       let menuFreeMinutes = 0;
       let psPriceDifference = 0; // Total price difference for free time
       let freeTimeDetails = [];
@@ -995,7 +1069,7 @@ const AdminTableManagePage = () => {
             else if (freeMinutesForPS === 'PS4' && table.ps4Price > 0) freePSPrice = table.ps4Price;
             else if (freeMinutesForPS === 'PS5' && table.ps5Price > 0) freePSPrice = table.ps5Price;
             
-            const currentPSPrice = session.hourlyPrice;
+            const currentPSPrice = getDisplayHourlyPrice(session, table);
             const priceDiff = currentPSPrice - freePSPrice;
             
             if (priceDiff > 0) {
@@ -1014,97 +1088,6 @@ const AdminTableManagePage = () => {
       
       // Selected free minutes from product (manually entered)
       const selectedFreeMinutes = session.selectedFreeMinutes || 0;
-      
-      // Total free minutes (priority: set free time > selected free minutes > menu free time)
-      const totalFreeMinutes = Math.max(setFreeMinutes, Math.max(selectedFreeMinutes, menuFreeMinutes));
-      
-      // Calculate time and price for each PS type if psHistory exists
-      let totalHourTotal = 0;
-      let psTimeDetails = [];
-      
-      if (session.psHistory && session.psHistory.length > 0) {
-        // Calculate for each PS period
-        session.psHistory.forEach((psPeriod, index) => {
-          const periodStartTime = psPeriod.startTime;
-          // If endTime is null, it means this is the current active PS period
-          const periodEndTime = psPeriod.endTime || endTime;
-          const periodDurationMs = periodEndTime - periodStartTime;
-          const periodDurationMinutes = Math.max(0, Math.round(periodDurationMs / (1000 * 60)));
-          
-          if (periodDurationMinutes > 0) {
-            // Calculate how much of this period is within free time
-            // Period start time relative to session start
-            const periodStartRelativeMinutes = Math.floor((periodStartTime - session.startTime) / (1000 * 60));
-            const periodEndRelativeMinutes = periodStartRelativeMinutes + periodDurationMinutes;
-            
-            // Calculate free time that applies to this period
-            let freeMinutesForThisPeriod = 0;
-            if (totalFreeMinutes > 0) {
-              // Free time starts from session start
-              const freeTimeEnd = totalFreeMinutes;
-              
-              // Calculate overlap between period and free time
-              const periodStartInFree = Math.max(0, periodStartRelativeMinutes);
-              const periodEndInFree = Math.min(periodEndRelativeMinutes, freeTimeEnd);
-              
-              if (periodEndInFree > periodStartInFree) {
-                freeMinutesForThisPeriod = periodEndInFree - periodStartInFree;
-              }
-            }
-            
-            // Chargeable minutes for this period (excluding free time)
-            const chargeableMinutesForPeriod = Math.max(0, periodDurationMinutes - freeMinutesForThisPeriod);
-            
-            if (chargeableMinutesForPeriod > 0) {
-              // Calculate price for this period (only chargeable minutes)
-              let periodHourTotal = 0;
-              const periodPricePerMinute = psPeriod.hourlyPrice / 60;
-              
-              switch (pricingMethod) {
-                case '30min':
-                  if (chargeableMinutesForPeriod <= 30) {
-                    periodHourTotal = psPeriod.hourlyPrice / 2;
-                  } else {
-                    const fullHours = Math.ceil(chargeableMinutesForPeriod / 60);
-                    periodHourTotal = psPeriod.hourlyPrice * fullHours;
-                  }
-                  break;
-                case 'minute':
-                  periodHourTotal = chargeableMinutesForPeriod * periodPricePerMinute;
-                  break;
-                case 'rounded':
-                  const exactTotal = chargeableMinutesForPeriod * periodPricePerMinute;
-                  const qepik = Math.round(exactTotal * 100) % 100;
-                  let roundedQepik = qepik > 0 ? Math.ceil(qepik / 10) * 10 : 0;
-                  periodHourTotal = Math.floor(exactTotal) + (roundedQepik / 100);
-                  break;
-                default:
-                  periodHourTotal = chargeableMinutesForPeriod * periodPricePerMinute;
-              }
-              
-              totalHourTotal += periodHourTotal;
-              psTimeDetails.push({
-                psType: psPeriod.psType,
-                durationMinutes: periodDurationMinutes,
-                chargeableMinutes: chargeableMinutesForPeriod,
-                hourlyPrice: psPeriod.hourlyPrice,
-                total: periodHourTotal
-              });
-            } else {
-              // Period is completely within free time, but still show it in details
-              psTimeDetails.push({
-                psType: psPeriod.psType,
-                durationMinutes: periodDurationMinutes,
-                chargeableMinutes: 0,
-                hourlyPrice: psPeriod.hourlyPrice,
-                total: 0
-              });
-            }
-          }
-        });
-      }
-      
-      // Free minutes already calculated above
       
       // If set free time exists, only count time after set free time ends
       let chargeableMinutes = 0;
@@ -1151,77 +1134,43 @@ const AdminTableManagePage = () => {
         chargeableMinutes = durationMinutes;
       }
 
-      // Hesablama qaydası seçilən metoda görə
+      // Hesablama: son seçilmiş PS tarifi (effectiveHourlyPrice) × bütün ödənişli dəqiqə (dövr dövr ayrılmır)
       let hourTotal = 0;
-      let pricingRule = '';
-      
-      // If psHistory exists, use calculated totalHourTotal, otherwise calculate normally
-      if (session.psHistory && session.psHistory.length > 0 && totalHourTotal > 0) {
-        hourTotal = totalHourTotal;
-        pricingRule = `PS dəyişiklikləri ilə hesablanıb (${psTimeDetails.length} dəyişiklik)`;
-      } else if (chargeableMinutes > 0) {
+      if (chargeableMinutes > 0) {
         switch (pricingMethod) {
           case '30min':
-            // 30 dəqiqə qaydası (köhnə sistem)
             if (chargeableMinutes <= 30) {
-              hourTotal = session.hourlyPrice / 2;
-              pricingRule = '30 dəqiqə qaydası (yarım saat)';
+              hourTotal = effectiveHourlyPrice / 2;
             } else {
               const fullHours = Math.ceil(chargeableMinutes / 60);
-              hourTotal = session.hourlyPrice * fullHours;
-              pricingRule = `${fullHours} saat (yuvarlaqlaşdırılmış)`;
+              hourTotal = effectiveHourlyPrice * fullHours;
             }
             break;
             
-          case 'minute':
-            // Dəqiqə əsaslı hesablama
-            const pricePerMinute = session.hourlyPrice / 60;
+          case 'minute': {
+            const pricePerMinute = effectiveHourlyPrice / 60;
             hourTotal = chargeableMinutes * pricePerMinute;
-            pricingRule = `Dəqiqə əsaslı (${pricePerMinute.toFixed(3)}₼/dəqiqə)`;
             break;
+          }
             
-          case 'rounded':
-            // 10 qəpiklik yuvarlaqlaşdırma qaydası (pula görə)
-            const pricePerMinuteRounded = session.hourlyPrice / 60;
+          case 'rounded': {
+            const pricePerMinuteRounded = effectiveHourlyPrice / 60;
             const exactTotal = chargeableMinutes * pricePerMinuteRounded;
-            
-            // 10 qəpiklik yuvarlaqlaşdırma
-            // 21-29 qəpik → 30 qəpik
-            // 31-39 qəpik → 40 qəpik
-            // 41-49 qəpik → 50 qəpik
-            // və s.
-            const qepik = Math.round(exactTotal * 100) % 100; // Qəpik hissəsi
+            const qepik = Math.round(exactTotal * 100) % 100;
             let roundedQepik = qepik;
-            
             if (qepik > 0) {
-              // 10 qəpiklik intervallarla yuvarlaqlaşdırma
               roundedQepik = Math.ceil(qepik / 10) * 10;
             }
-            
-            // Yuvarlaqlaşdırılmış məbləğ
             const manat = Math.floor(exactTotal);
             hourTotal = manat + (roundedQepik / 100);
-            
-            pricingRule = `10 qəpiklik yuvarlaqlaşdırma (${exactTotal.toFixed(2)}₼→${hourTotal.toFixed(2)}₼)`;
             break;
-            
-          default:
-            // Default: dəqiqə əsaslı
-            const pricePerMinuteDefault = session.hourlyPrice / 60;
-            hourTotal = chargeableMinutes * pricePerMinuteDefault;
-            pricingRule = `Dəqiqə əsaslı (${pricePerMinuteDefault.toFixed(3)}₼/dəqiqə)`;
-        }
-      }
-      
-      // Add PS time details to freeInfo
-      if (psTimeDetails.length > 0) {
-        const psDetailsText = psTimeDetails.map(detail => {
-          if (detail.chargeableMinutes === 0 || detail.chargeableMinutes === undefined) {
-            return `${detail.psType}: ${detail.durationMinutes} dəq (${detail.hourlyPrice}₼/saat) = 0.00₼ (pulsuz vaxt daxilində)`;
           }
-          return `${detail.psType}: ${detail.chargeableMinutes} dəq (${detail.hourlyPrice}₼/saat) = ${detail.total.toFixed(2)}₼`;
-        }).join('\n');
-        freeInfo = (freeInfo ? freeInfo + '\n\n' : '') + 'PS Dəyişiklikləri:\n' + psDetailsText;
+            
+          default: {
+            const pricePerMinuteDefault = effectiveHourlyPrice / 60;
+            hourTotal = chargeableMinutes * pricePerMinuteDefault;
+          }
+        }
       }
 
       const menuTotal = session.selectedMenu.reduce((sum, item) => {
@@ -1238,14 +1187,14 @@ const AdminTableManagePage = () => {
         startTime: session.startTime,
         endTime,
         durationMinutes,
-        hourlyPrice: session.hourlyPrice,
+        hourlyPrice: effectiveHourlyPrice,
         hourTotal: hourTotal + psPriceDifference, // Include PS price difference in hourTotal
         selectedMenu: session.selectedMenu,
         menuTotal,
         total,
         freeInfo,
         chargeableMinutes,
-        pricingRule,
+        pricingRule: '',
         psType: session.psType,
         psPriceDifference: psPriceDifference,
         psHistory: session.psHistory || [] // Store PS history in order
@@ -1348,7 +1297,24 @@ const AdminTableManagePage = () => {
       
       // Add order to backend (with duplicate check)
       try {
-        await api.post('/order/AddOrder', orderWithDiscount);
+        const orderRes = await apiClient.post('/order/AddOrder', orderWithDiscount);
+        const alerts = orderRes.data?.lowStockAlerts;
+        if (alerts?.length) {
+          alerts.forEach((p) => {
+            setNotification(`Az stok: ${p.name}`);
+            setNotificationType('warning');
+          });
+        }
+        const menuSummary = (modalOrder.selectedMenu || [])
+          .filter((i) => !i.isExtra)
+          .map((i) => `${i.name}×${i.quantity || 1}`)
+          .join(', ');
+        await logTableActivity(apiClient, `${getStaffName()} — ${modalOrder.tableName}: ödəniş ${finalTotal.toFixed(2)}₼ (${menuSummary || 'menyu yoxdur'})`, {
+          type: 'payment',
+          tableName: modalOrder.tableName,
+          total: finalTotal,
+          menu: menuSummary,
+        }, 'Order');
       } catch (orderError) {
         // If duplicate order error (409), still delete session and show message
         if (orderError.response?.status === 409) {
@@ -1364,7 +1330,7 @@ const AdminTableManagePage = () => {
       try {
         const sessionId = modalOrder.sessionId || (sessions.find(s => s.tableId === modalOrder.tableId)?._id);
         if (sessionId) {
-          await api.delete(`/tablesession/${sessionId}`);
+          await apiClient.delete(`/tablesession/${sessionId}`);
           // Remove from local sessions immediately
           setSessions(prev => prev.filter(s => s._id !== sessionId));
         }
@@ -1661,7 +1627,7 @@ const AdminTableManagePage = () => {
                 <div className="flex items-center gap-2">
                   <span className="text-xs sm:text-sm text-gray-600">Saatlıq qiymət:</span>
                   <span className="text-sm sm:text-base font-semibold text-gray-800">
-                    {session ? (session.hourlyPrice || table.hourlyPrice) : table.hourlyPrice}₼
+                    {getDisplayHourlyPrice(session, table)}₼
                   </span>
                 </div>
                 {session?.psType && (
@@ -1697,8 +1663,7 @@ const AdminTableManagePage = () => {
                       {(() => {
                         const extraItem = session.selectedMenu.find(m => m.isExtra || m.name === 'Əlavə pult');
                         const qty = extraItem ? (extraItem.quantity || 1) : 0;
-                        const rawId = extraItem ? (extraItem.extraId ?? extraItem._id ?? extraItem.id) : null;
-                        const menuId = rawId != null ? String(rawId) : null;
+                        const menuId = extraItem ? getSessionMenuItemKey(extraItem) : '';
                         return (
                           <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg px-1 py-0.5 border border-gray-200">
                             <button
@@ -1827,7 +1792,7 @@ const AdminTableManagePage = () => {
                                 if (hours && hours > 0) {
                                   // Start or update selected hours countdown (allows editing)
                                   try {
-                                    await api.put(`/tablesession/${session._id}/update`, {
+                                    await apiClient.put(`/tablesession/${session._id}/update`, {
                                       selectedSet: session.selectedSet || null,
                                       setFreeMinutes: session.setFreeMinutes || null,
                                       selectedHours: hours,
@@ -1850,7 +1815,7 @@ const AdminTableManagePage = () => {
                                 } else if (hasMenuFreeTime) {
                                   // Start or restart menu free time countdown
                                   try {
-                                    await api.put(`/tablesession/${session._id}/update`, {
+                                    await apiClient.put(`/tablesession/${session._id}/update`, {
                                       selectedSet: session.selectedSet || null,
                                       setFreeMinutes: session.setFreeMinutes || null,
                                       selectedHours: null,
@@ -1894,7 +1859,7 @@ const AdminTableManagePage = () => {
                   <div className="flex items-center gap-2 mb-1">
                     <i className="bi bi-cash-coin text-green-500"></i>
                     <span className="text-xs text-gray-500">Saatlıq qiymət:</span>
-                    <span className="text-sm font-semibold text-gray-700">{table.hourlyPrice}₼</span>
+                    <span className="text-sm font-semibold text-gray-700">{getDisplayHourlyPrice(session, table)}₼</span>
                   </div>
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mb-1">
                     <div className="flex items-center gap-2">
@@ -1944,7 +1909,7 @@ const AdminTableManagePage = () => {
                     <div className="mb-2 flex flex-wrap gap-2 mt-2">
                       {session.selectedMenu.filter(item => !item.isExtra).map((item, index) => {
                         const quantity = item.quantity || 1;
-                        const itemId = item._id || item.id || item.extraId;
+                        const itemId = getSessionMenuItemKey(item);
                         return (
                           <div key={itemId || index} className="bg-white border border-orange-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 sm:gap-3 shadow-sm w-full sm:w-auto">
                             <span className="text-xs sm:text-sm font-medium text-gray-700 flex-1 break-words">
@@ -2045,22 +2010,8 @@ const AdminTableManagePage = () => {
                 </div>
                 
                 <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-gray-100">
-                  <span className="text-xs sm:text-sm text-gray-600">Qiymət qaydası:</span>
-                  <span className="text-xs sm:text-sm font-semibold text-blue-600 break-words text-right">{modalOrder.pricingRule}</span>
-                </div>
-                
-                <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-gray-100">
                   <span className="text-xs sm:text-sm text-gray-600">Vaxt cəmi:</span>
                   <span className="text-xs sm:text-sm font-semibold text-blue-600">{modalOrder.hourTotal.toFixed(2)}₼</span>
-                </div>
-                
-                <div className="bg-blue-50 p-2 sm:p-3 rounded-lg mb-2 sm:mb-3">
-                  <span className="text-xs sm:text-sm text-blue-700 font-medium">
-                    {pricingMethod === 'rounded' && modalOrder.pricingRule.includes('→') 
-                      ? modalOrder.pricingRule.split('(')[1].split(')')[0]
-                      : `${modalOrder.chargeableMinutes} dəqiqə × ${(modalOrder.hourlyPrice / 60).toFixed(3)}₼/dəqiqə = ${modalOrder.hourTotal.toFixed(2)}₼`
-                    }
-                  </span>
                 </div>
                 
                 {modalOrder.psType && (
@@ -2254,7 +2205,7 @@ const AdminTableManagePage = () => {
               <div className="mb-4 sm:mb-6">
                 <div className="text-base sm:text-lg font-bold text-gray-800 mb-1 sm:mb-2 text-center">{changePSModal.table.name}</div>
                 <div className="text-xs sm:text-sm text-gray-600 text-center">
-                  Cari PS: <b>{changePSModal.session.psType || 'Seçilməyib'}</b> ({changePSModal.session.hourlyPrice}₼/saat)
+                  Cari PS: <b>{changePSModal.session.psType || 'Seçilməyib'}</b> ({getDisplayHourlyPrice(changePSModal.session, changePSModal.table)}₼/saat)
                 </div>
               </div>
 

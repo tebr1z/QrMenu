@@ -22,6 +22,7 @@ import { ContextUser } from '../context/CheckUserContext'
 import AdminProductList from '../components/AdminComponents/AdminProductList'
 import ProductModal from '../components/AdminComponents/ProductModal'
 import Loading from '../components/Loading'
+import PermissionGate from '../components/AdminComponents/PermissionGate'
 import { toast } from 'react-toastify'
 
 // Sortable Product Item Component
@@ -219,13 +220,15 @@ const AdminProduct = () => {
                         <h1 className="text-3xl font-bold text-gray-800">Məhsulların İdarəsi</h1>
                         <p className="text-gray-600 mt-2">Məhsulları əlavə edin, düzəliş edin və silin</p>
                     </div>
-                    <button
-                        onClick={() => handleModalToggle()}
-                        className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200 font-medium flex items-center shadow-lg"
-                    >
-                        <i className="bi bi-plus-lg mr-2"></i>
-                        Yeni Məhsul
-                    </button>
+                    <PermissionGate page="Product" action="edit">
+                        <button
+                            onClick={() => handleModalToggle()}
+                            className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200 font-medium flex items-center shadow-lg"
+                        >
+                            <i className="bi bi-plus-lg mr-2"></i>
+                            Yeni Məhsul
+                        </button>
+                    </PermissionGate>
                 </div>
                 
                 {/* Filters */}
@@ -351,13 +354,15 @@ const AdminProduct = () => {
                                 }
                             </p>
                             {!searchTerm && !selectedCategory && (
-                                <button
-                                    onClick={() => handleModalToggle()}
-                                    className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200"
-                                >
-                                    <i className="bi bi-plus-lg mr-2"></i>
-                                    İlk Məhsulu Əlavə Et
-                                </button>
+                                <PermissionGate page="Product" action="edit">
+                                    <button
+                                        onClick={() => handleModalToggle()}
+                                        className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200"
+                                    >
+                                        <i className="bi bi-plus-lg mr-2"></i>
+                                        İlk Məhsulu Əlavə Et
+                                    </button>
+                                </PermissionGate>
                             )}
                         </div>
                     ) : (

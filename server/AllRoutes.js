@@ -12,6 +12,9 @@ import ExtraServiceRoutes from './routes/ExtraService.js';
 import ExpenseRoutes from './routes/Expense.js';
 import ConfigRoutes from './routes/Config.js';
 import SetRequestRoutes from './routes/SetRequest.js';
+import ComplaintRoutes from './routes/Complaint.js';
+import EmployeeRoutes from './routes/Employee.js';
+import AuditLogRoutes from './routes/AuditLog.js';
 const router = express.Router();
 
 router.use('/Auth', Auth)
@@ -27,4 +30,7 @@ router.use('/extraservice', ExtraServiceRoutes);
 router.use('/expense', ExpenseRoutes);
 router.use('/config', ConfigRoutes);
 router.use('/setrequest', SetRequestRoutes);
+router.use('/complaint', ComplaintRoutes);
+router.use('/employee', EmployeeRoutes);
+router.use('/audit', AuditLogRoutes);
 export default router;

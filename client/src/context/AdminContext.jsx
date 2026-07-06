@@ -1,46 +1,11 @@
 import React, { createContext, useState, useEffect, useCallback, useMemo } from 'react'
 export const ContextAdmin = createContext()
 import { toast } from 'react-toastify'
-import axios from "axios";
+import { createApiClient, fetchAllSettled } from '../utils/http';
 
 const AdminContext = ({ children }) => {
-    // Create separate apiClient for AdminContext
     const apiUrl = import.meta.env.VITE_API || '/api';
-    const apiClient = useMemo(() => {
-        const client = axios.create({
-            baseURL: apiUrl,
-            withCredentials: true,
-            timeout: 10000,
-        });
-
-        // Add request interceptor for AdminContext
-        client.interceptors.request.use(
-            (config) => {
-                const getCookie = (name) => {
-                    const value = `; ${document.cookie}`;
-                    const parts = value.split(`; ${name}=`);
-                    if (parts.length === 2) return parts.pop().split(';').shift();
-                    return null;
-                };
-                
-                const token = getCookie('jwtToken');
-                if (token) {
-                    config.headers.Authorization = `Bearer ${token}`;
-                }
-                
-                // If FormData is being sent, don't set Content-Type header
-                // Let the browser set it automatically with boundary
-                if (config.data instanceof FormData) {
-                    delete config.headers['Content-Type'];
-                }
-                
-                return config;
-            },
-            (error) => Promise.reject(error)
-        );
-
-        return client;
-    }, [apiUrl]);
+    const apiClient = useMemo(() => createApiClient(apiUrl), [apiUrl]);
 
     // start Category
     const [categoryLoading, setCategoryLoading] = useState(false)
@@ -63,6 +28,9 @@ const AdminContext = ({ children }) => {
             console.log('Adding category with data:', category);
             const data = new FormData()
             data.append('name', category.name)
+            if (category.showInCustomerMenu !== undefined) {
+                data.append('showInCustomerMenu', category.showInCustomerMenu ? 'true' : 'false')
+            }
             data.append('imageCategory', category.imageFile)
             
             console.log('FormData entries:');
@@ -90,6 +58,9 @@ const AdminContext = ({ children }) => {
             console.log('Category data:', category);
             const data = new FormData()
             data.append('name', category.name)
+            if (category.showInCustomerMenu !== undefined) {
+                data.append('showInCustomerMenu', category.showInCustomerMenu ? 'true' : 'false')
+            }
             data.append('imageCategory', category.imageFile)
             
             console.log('FormData entries:');
@@ -183,6 +154,7 @@ const AdminContext = ({ children }) => {
             setNewProduct(response.data)
             toast.success(response.data.message)
             setProductLoading(false)
+            return response.data
         } catch (error) {
             console.log('Add Product Error:', error)
             console.log('Error response:', error.response)
@@ -193,6 +165,7 @@ const AdminContext = ({ children }) => {
                 toast.error('Məhsul əlavə edilərkən xəta baş verdi')
             }
             setProductLoading(false)
+            throw error
         }
     }, [apiClient])
 
@@ -220,6 +193,7 @@ const AdminContext = ({ children }) => {
             setUpdateProduct(response.data.product)
             toast.success(response.data.message)
             setProductLoading(false)
+            return response.data.product
         } catch (error) {
             console.log('Update Product Error:', error)
             console.log('Error response:', error.response)
@@ -230,6 +204,7 @@ const AdminContext = ({ children }) => {
                 toast.error('Məhsul yenilənərkən xəta baş verdi')
             }
             setProductLoading(false)
+            throw error
         }
     }, [apiClient])
 
@@ -353,14 +328,28 @@ const AdminContext = ({ children }) => {
     // Initial data loading - run only once
     useEffect(() => {
         const loadInitialData = async () => {
-            try {
-                await Promise.all([
-                    getCategoriesFunc(),
-                    getProductsFunc(),
-                    getContactData()
-                ]);
-            } catch (error) {
-                console.log('Initial data loading error:', error);
+            const settled = await fetchAllSettled([
+                apiClient.get('/Category/GetCategory'),
+                apiClient.get('/Product/GetProduct'),
+                apiClient.get('/Contact'),
+            ]);
+            const [catRes, prodRes, contactRes] = settled;
+            if (catRes.ok) setCategories(catRes.data || []);
+            if (prodRes.ok) {
+                const sortedProducts = (prodRes.data || []).sort((a, b) => {
+                    const orderA = a.order || 0;
+                    const orderB = b.order || 0;
+                    if (orderA !== orderB) return orderA - orderB;
+                    return new Date(b.createdAt) - new Date(a.createdAt);
+                });
+                setProducts(sortedProducts);
+            }
+            if (contactRes.ok && Array.isArray(contactRes.data) && contactRes.data[0]) {
+                setcontactData(contactRes.data[0]);
+            }
+            const failed = settled.filter((r) => !r.ok).length;
+            if (failed > 0) {
+                toast.warn('Bəzi məlumatlar qismən yüklənmədi — səhifəni yeniləyin');
             }
         };
         

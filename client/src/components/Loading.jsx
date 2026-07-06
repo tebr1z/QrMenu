@@ -1,6 +1,14 @@
 import React from 'react'
 
-const Loading = () => {
+const Loading = ({ fullScreen = true }) => {
+    if (!fullScreen) {
+        return (
+            <div className="flex justify-center items-center py-24">
+                <div className="w-12 h-12 border-4 border-t-4 border-orange-500 border-solid rounded-full animate-spin" />
+            </div>
+        );
+    }
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="absolute inset-0 bg-opacity-60 backdrop-blur-sm"></div>
