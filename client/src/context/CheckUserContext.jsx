@@ -1,215 +1,195 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { createContext } from 'react'
 export const ContextUser = createContext()
-import axios from "axios";
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import { normalizePermissions } from '../config/permissions';
+import { getRoleFromToken } from '../utils/jwt';
+import { createApiClient, getCookie } from '../utils/http';
+
+const SESSION_KEY = 'admin_session_data';
+const MAX_SESSION_AGE = 24 * 60 * 60 * 1000;
+
+function readSession() {
+    try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+function persistSession(hasToken, extra = {}) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+        timestamp: Date.now(),
+        hasToken,
+        ...extra,
+    }));
+}
 
 const CheckUserContext = ({ children }) => {
-    const navigate = useNavigate()
     const apiUrl = import.meta.env.VITE_API || '/api';
 
-    const apiClient = axios.create({
-        baseURL: apiUrl,
-        withCredentials: true, // Important for cookies
-        timeout: 10000, // 10 second timeout
-    });
-
-    // Add request interceptor to include Authorization header
-    apiClient.interceptors.request.use(
-        (config) => {
-            // Get token from localStorage
-            const sessionData = localStorage.getItem('admin_session_data');
-            if (sessionData) {
-                try {
-                    const parsed = JSON.parse(sessionData);
-                    const sessionAge = Date.now() - parsed.timestamp;
-                    const maxSessionAge = 24 * 60 * 60 * 1000; // 24 saat
-                    
-                    if (sessionAge < maxSessionAge && parsed.hasToken) {
-                        // Get token from cookies as fallback
-                        const getCookie = (name) => {
-                            const value = `; ${document.cookie}`;
-                            const parts = value.split(`; ${name}=`);
-                            if (parts.length === 2) return parts.pop().split(';').shift();
-                            return null;
-                        };
-                        
-                        const token = getCookie('jwtToken');
-                        if (token) {
-                            console.log('Adding Authorization header with token');
-                            config.headers.Authorization = `Bearer ${token}`;
-                        } else {
-                            console.log('No token found in cookies for Authorization header');
-                        }
-                    }
-                } catch (error) {
-                    console.error('Session data parse error:', error);
-                }
-            }
-            
-            // If FormData is being sent, don't set Content-Type header
-            // Let the browser set it automatically with boundary
-            if (config.data instanceof FormData) {
-                delete config.headers['Content-Type'];
-            }
-            
-            return config;
-        },
-        (error) => {
-            return Promise.reject(error);
-        }
-    );
+    const apiClient = useMemo(() => createApiClient(apiUrl), [apiUrl]);
 
     const [hasJwtToken, sethasJwtToken] = useState(false)
+    const [authReady, setAuthReady] = useState(false)
+    const [userRole, setUserRole] = useState(() => readSession()?.role || null)
+    const [userPermissions, setUserPermissions] = useState(() => {
+        const p = readSession()?.permissions;
+        return p ? normalizePermissions(p) : null;
+    })
 
-    // Simple function to check if JWT token exists in cookies
-    const checkJwtToken = () => {
-        const getCookie = (name) => {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) return parts.pop().split(';').shift();
-            return null;
-        };
-        
-        // First check localStorage for session data (primary method)
-        const sessionData = localStorage.getItem('admin_session_data');
-        if (sessionData) {
-            try {
-                const parsed = JSON.parse(sessionData);
-                const sessionAge = Date.now() - parsed.timestamp;
-                const maxSessionAge = 24 * 60 * 60 * 1000; // 24 saat
-                
-                if (sessionAge < maxSessionAge && parsed.hasToken) {
-                    console.log('Valid session found in localStorage');
-                    sethasJwtToken(true);
-                    return true;
-                }
-            } catch (error) {
-                console.error('Session data parse error:', error);
-            }
-        }
-        
-        // Then check cookies as backup
+    const checkJwtToken = useCallback(() => {
+        const parsed = readSession();
         const jwtToken = getCookie('jwtToken');
         const hasToken = jwtToken && jwtToken.length > 10;
-        
-        console.log('=== Cookie Debug Info ===');
-        console.log('Document cookie:', document.cookie);
-        console.log('JWT Token check:', hasToken ? 'Found' : 'Not found');
-        console.log('Cookie value:', jwtToken);
-        console.log('Cookie length:', jwtToken ? jwtToken.length : 0);
-        console.log('========================');
-        
+        const roleFromJwt = hasToken ? getRoleFromToken(jwtToken) : null;
+
+        if (parsed) {
+            const sessionAge = Date.now() - parsed.timestamp;
+            if (sessionAge < MAX_SESSION_AGE && parsed.hasToken) {
+                if (parsed.role) setUserRole(parsed.role);
+                else if (roleFromJwt) setUserRole(roleFromJwt);
+                if (parsed.permissions) setUserPermissions(normalizePermissions(parsed.permissions));
+                sethasJwtToken(true);
+                return true;
+            }
+        }
+
         if (hasToken) {
-            console.log('Token found in cookies, updating localStorage');
             sethasJwtToken(true);
-            localStorage.setItem('admin_session_data', JSON.stringify({
-                timestamp: Date.now(),
-                hasToken: true
-            }));
+            if (roleFromJwt) setUserRole(roleFromJwt);
+            persistSession(true, {
+                role: roleFromJwt || undefined,
+            });
             return true;
         }
-        
-        console.log('No valid session found');
+
         sethasJwtToken(false);
         return false;
-    };
+    }, []);
 
-    // Function to set authentication status
-    const setAuthStatus = (status) => {
-        console.log('Setting auth status:', status);
+    const setAuthStatus = useCallback((status, userPayload = null) => {
         sethasJwtToken(status);
-        
-        // If setting to true, also store in localStorage for persistence
-        if (status) {
-            localStorage.setItem('admin_session_data', JSON.stringify({
-                timestamp: Date.now(),
-                hasToken: true
-            }));
-        } else {
-            localStorage.removeItem('admin_session_data');
-        }
-    };
 
-    // Function to clear authentication
-    const clearAuth = () => {
-        console.log('Clearing authentication');
-        localStorage.removeItem('admin_session_data');
+        if (status) {
+            const role = userPayload?.Role || userPayload?.role || null;
+            const name = userPayload?.Name || userPayload?.name;
+            const email = userPayload?.Email || userPayload?.email;
+            const permissions = userPayload?.permissions
+                ? normalizePermissions(userPayload.permissions)
+                : null;
+            if (role) setUserRole(role);
+            if (permissions) setUserPermissions(permissions);
+            persistSession(true, { role, name, email, permissions });
+            if (name) localStorage.setItem('userName', name);
+            setAuthReady(true);
+        } else {
+            localStorage.removeItem(SESSION_KEY);
+            localStorage.removeItem('userName');
+            setUserRole(null);
+            setUserPermissions(null);
+        }
+    }, []);
+
+    const clearAuth = useCallback(() => {
+        localStorage.removeItem(SESSION_KEY);
         localStorage.removeItem('userName');
         sethasJwtToken(false);
-    };
+        setUserRole(null);
+        setUserPermissions(null);
+        setAuthReady(true);
+    }, []);
 
-    apiClient.interceptors.response.use(
-        (response) => response,
-        (error) => {
-            console.log('API Error:', error.response?.status, error.response?.data);
-            
-            // Handle authentication errors
-            if (error.response?.status === 401 || error.response?.status === 403) {
-                console.log('Authentication error detected');
-                
-                // Check if we have a valid session before clearing auth
-                const sessionData = localStorage.getItem('admin_session_data');
-                if (sessionData) {
-                    try {
-                        const parsed = JSON.parse(sessionData);
-                        const sessionAge = Date.now() - parsed.timestamp;
-                        const maxSessionAge = 24 * 60 * 60 * 1000; // 24 saat
-                        
-                        if (sessionAge < maxSessionAge && parsed.hasToken) {
-                            console.log('Valid session exists, this might be a server-side issue');
-                            // Don't clear auth if we have a valid session
-                            return Promise.reject(error);
-                        }
-                    } catch (error) {
-                        console.error('Session data parse error:', error);
-                    }
-                }
-                
-                // Only clear auth if it's a real authentication error
-                if (error.response?.data?.error && 
-                    (error.response.data.error.includes('Yetkiniz yoxdur') || 
-                     error.response.data.error.includes('Token') ||
-                     error.response.data.error.includes('Icazə'))) {
+    useEffect(() => {
+        const interceptorId = apiClient.interceptors.response.use(
+            (response) => response,
+            (error) => {
+                const status = error.response?.status;
+                const msg = String(error.response?.data?.error || '');
+
+                if (status === 401) {
                     clearAuth();
-                    
-                    // Only redirect if we're not already on the home page
-                    if (window.location.pathname !== '/') {
+                    if (window.location.pathname !== '/' && !window.location.pathname.startsWith('/Sign')) {
                         toast.error('Səssiyanız bitib. Yenidən daxil olun.');
                         window.location.href = '/Sign';
                     }
-                } else {
-                    // For other 401/403 errors, just log them but don't clear auth
-                    console.log('Server error, not clearing authentication');
+                    return Promise.reject(error);
                 }
+
+                if (status === 403) {
+                    const isSessionError = msg.includes('Token tapılmadı')
+                        || msg.includes('Etibarsız token')
+                        || msg.includes('Icazə vaxtı bitdi');
+                    if (isSessionError) {
+                        clearAuth();
+                        if (window.location.pathname !== '/' && !window.location.pathname.startsWith('/Sign')) {
+                            toast.error('Səssiyanız bitib. Yenidən daxil olun.');
+                            window.location.href = '/Sign';
+                        }
+                    }
+                }
+                return Promise.reject(error);
             }
-            
-            return Promise.reject(error);
-        }
-    );
+        );
+        return () => apiClient.interceptors.response.eject(interceptorId);
+    }, [apiClient, clearAuth]);
 
     useEffect(() => {
-        // Check JWT token on component mount
         checkJwtToken();
-        
-        // Check every 30 seconds
+
+        const syncRole = async () => {
+            const jwtToken = getCookie('jwtToken');
+            const parsed = readSession();
+            if (!jwtToken && !parsed?.hasToken) {
+                setAuthReady(true);
+                return;
+            }
+            try {
+                const res = await apiClient.get('/Auth/Me');
+                const role = res.data?.role;
+                const permissions = res.data?.permissions
+                    ? normalizePermissions(res.data.permissions)
+                    : null;
+                if (role) {
+                    setUserRole(role);
+                    if (permissions) setUserPermissions(permissions);
+                    persistSession(true, {
+                        role,
+                        name: res.data.name,
+                        email: res.data.email,
+                        permissions,
+                    });
+                    if (res.data.name) localStorage.setItem('userName', res.data.name);
+                }
+            } catch {
+                const roleFromJwt = getRoleFromToken(getCookie('jwtToken'));
+                if (roleFromJwt) setUserRole(roleFromJwt);
+            } finally {
+                setAuthReady(true);
+            }
+        };
+        syncRole();
+
         const interval = setInterval(checkJwtToken, 30000);
-        
         return () => clearInterval(interval);
-    }, [])
+    }, [checkJwtToken, apiClient])
 
     return (
         <ContextUser.Provider value={{
             apiClient,
             hasJwtToken,
+            authReady,
+            userRole,
+            userPermissions,
+            setUserRole,
+            setUserPermissions,
             setAuthStatus,
             clearAuth,
             checkJwtToken
         }}>
-            {
-                children
-            }
+            {children}
         </ContextUser.Provider>
     )
 }
