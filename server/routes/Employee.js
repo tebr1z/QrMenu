@@ -3,7 +3,6 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import Employee from '../model/EmployeeModal.js';
 import EmployeeWithdrawal from '../model/EmployeeWithdrawalModal.js';
-import Config from '../model/ConfigModal.js';
 import { CheckToken } from '../middleware/CkeckToken.js';
 import { requireRole } from '../middleware/requireRole.js';
 import { verifyEmployeeToken } from '../middleware/employeeToken.js';
@@ -11,11 +10,19 @@ import { requirePermission } from '../middleware/requirePermission.js';
 import { getPayPeriod } from '../utils/payPeriod.js';
 import { getFinancePayrollReport, refreshArchivedPeriodForDate } from '../utils/employeePayrollArchive.js';
 import { logAudit } from '../utils/auditLog.js';
+import {
+    getKassaBalance as readKassaBalance,
+    adjustKassa,
+    appendKassaWithdrawal,
+} from '../utils/kassaLedger.js';
 
 const router = express.Router();
 
 function todayKey(date = new Date()) {
-    return date.toISOString().slice(0, 10);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
 }
 
 function isMonthlyPayDay(date = new Date()) {
@@ -156,11 +163,6 @@ async function processWithdrawal(employee, kind, now = new Date()) {
             throw Object.assign(new Error('Aylıq prim məbləği təyin edilməyib'), { status: 400 });
         }
 
-        const balance = await getKassaBalance();
-        if (balance < amount) {
-            throw Object.assign(new Error('Kassada kifayət qədər pul yoxdur'), { status: 400 });
-        }
-
         const withdrawal = new EmployeeWithdrawal({
             employeeId: employee._id,
             employeeName: employee.name,
@@ -171,8 +173,18 @@ async function processWithdrawal(employee, kind, now = new Date()) {
         });
         await withdrawal.save();
 
-        const newBalance = balance - amount;
-        await setKassaBalance(newBalance);
+        let newBalance;
+        try {
+            newBalance = await debitKassaForSalary(amount, {
+                employeeName: employee.name,
+                date: dateKey,
+                withdrawalId: withdrawal._id.toString(),
+                label: `İşçi maaşı: ${employee.name}`,
+            });
+        } catch (kassaErr) {
+            await EmployeeWithdrawal.findByIdAndDelete(withdrawal._id).catch(() => {});
+            throw kassaErr;
+        }
         const payTypeNorm = normalizePayType(employee.payType);
         const logLabel = buildEmployeeLogLabel(employee.name, 'premium', payTypeNorm);
         await logEmployeePayrollAudit(
@@ -217,11 +229,6 @@ async function processWithdrawal(employee, kind, now = new Date()) {
         throw Object.assign(new Error('Günlük məbləğ təyin edilməyib'), { status: 400 });
     }
 
-    const balance = await getKassaBalance();
-    if (balance < amount) {
-        throw Object.assign(new Error('Kassada kifayət qədər pul yoxdur'), { status: 400 });
-    }
-
     const withdrawal = new EmployeeWithdrawal({
         employeeId: employee._id,
         employeeName: employee.name,
@@ -232,8 +239,18 @@ async function processWithdrawal(employee, kind, now = new Date()) {
     });
     await withdrawal.save();
 
-    const newBalance = balance - amount;
-    await setKassaBalance(newBalance);
+    let newBalance;
+    try {
+        newBalance = await debitKassaForSalary(amount, {
+            employeeName: employee.name,
+            date: dateKey,
+            withdrawalId: withdrawal._id.toString(),
+            label: `İşçi maaşı: ${employee.name}`,
+        });
+    } catch (kassaErr) {
+        await EmployeeWithdrawal.findByIdAndDelete(withdrawal._id).catch(() => {});
+        throw kassaErr;
+    }
     const payTypeNorm = normalizePayType(employee.payType);
     const logLabel = buildEmployeeLogLabel(employee.name, 'daily', payTypeNorm);
     await logEmployeePayrollAudit(
@@ -261,16 +278,33 @@ async function processWithdrawal(employee, kind, now = new Date()) {
 }
 
 async function getKassaBalance() {
-    const config = await Config.findOne({ key: 'kassaBalance' }).lean();
-    return typeof config?.value === 'number' ? config.value : 0;
+    return readKassaBalance();
 }
 
-async function setKassaBalance(value) {
-    await Config.findOneAndUpdate(
-        { key: 'kassaBalance' },
-        { key: 'kassaBalance', value, updatedAt: new Date() },
-        { upsert: true, new: true }
-    );
+async function debitKassaForSalary(amount, meta = {}) {
+    const { balance } = await adjustKassa(-amount);
+    await appendKassaWithdrawal({
+        amount,
+        label: meta.label || `İşçi: ${meta.employeeName || '—'}`,
+        date: meta.date || new Date().toISOString().slice(0, 10),
+        source: 'employee',
+        type: 'withdraw',
+        withdrawalId: meta.withdrawalId,
+    });
+    return balance;
+}
+
+async function creditKassaForSalaryReversal(amount, meta = {}) {
+    const { balance } = await adjustKassa(amount, { allowNegative: true });
+    await appendKassaWithdrawal({
+        amount: -Math.abs(amount),
+        label: meta.label || `Maaş qaytarıldı: ${meta.employeeName || '—'}`,
+        date: meta.date || new Date().toISOString().slice(0, 10),
+        source: 'employee',
+        type: 'reversal',
+        withdrawalId: meta.withdrawalId,
+    });
+    return balance;
 }
 
 function buildEmployeeLogLabel(employeeName, kind, payType, isReversal = false) {
@@ -594,7 +628,7 @@ router.get('/payroll/finance', CheckToken, requirePermission('Finance', 'view'),
     }
 });
 
-router.delete('/withdrawals/:id', CheckToken, requirePermission('Finance', 'edit'), async (req, res) => {
+router.delete('/withdrawals/:id', CheckToken, requireRole('master_admin'), async (req, res) => {
     try {
         const withdrawal = await EmployeeWithdrawal.findById(req.params.id);
         if (!withdrawal) {
@@ -605,9 +639,12 @@ router.delete('/withdrawals/:id', CheckToken, requirePermission('Finance', 'edit
         const kind = withdrawal.kind || 'daily';
         await EmployeeWithdrawal.findByIdAndDelete(withdrawal._id);
 
-        const balance = await getKassaBalance();
-        const newBalance = balance + amount;
-        await setKassaBalance(newBalance);
+        const newBalance = await creditKassaForSalaryReversal(amount, {
+            employeeName: withdrawal.employeeName,
+            date: withdrawal.dateKey,
+            withdrawalId: withdrawal._id.toString(),
+            label: `Maaş qaytarıldı: ${withdrawal.employeeName}`,
+        });
 
         const employee = await Employee.findById(withdrawal.employeeId).lean();
         const payTypeNorm = normalizePayType(employee?.payType);
@@ -650,23 +687,29 @@ router.delete('/withdrawals/:id', CheckToken, requirePermission('Finance', 'edit
     }
 });
 
-router.get('/withdrawals/all', CheckToken, requireRole('master_admin'), async (req, res) => {
+/** Finance xalis hesabı üçün — dateKey (YYYY-MM-DD) üzrə inklüziv aralıq */
+router.get('/withdrawals/all', CheckToken, requirePermission('Finance', 'view'), async (req, res) => {
     try {
         const { from, to } = req.query;
         const query = {};
         if (from || to) {
-            query.withdrawnAt = {};
-            if (from) query.withdrawnAt.$gte = new Date(from);
-            if (to) query.withdrawnAt.$lt = new Date(to);
+            query.dateKey = {};
+            if (from) query.dateKey.$gte = String(from).slice(0, 10);
+            if (to) query.dateKey.$lte = String(to).slice(0, 10);
         }
 
-        const list = await EmployeeWithdrawal.find(query).sort({ withdrawnAt: -1 }).limit(500).lean();
+        const list = await EmployeeWithdrawal.find(query).sort({ withdrawnAt: -1 }).limit(2000).lean();
         const period = getPayPeriod();
+        const total = list.reduce((s, w) => s + (Number(w.amount) || 0), 0);
 
-        res.json({ withdrawals: list, period: {
-            start: period.start.toISOString().slice(0, 10),
-            end: period.end.toISOString().slice(0, 10),
-        }});
+        res.json({
+            withdrawals: list,
+            total,
+            period: {
+                start: period.start.toISOString().slice(0, 10),
+                end: period.end.toISOString().slice(0, 10),
+            },
+        });
     } catch (error) {
         res.status(500).json({ error: 'Çıxarışlar alınmadı' });
     }

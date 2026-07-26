@@ -14,6 +14,7 @@ import AllRoutes from "./AllRoutes.js";
 // start connection
 import { connectMongoDb } from './connection/DbConnection.js';
 import { ClodinaryConnection } from './connection/ClodinaryConnection.js';
+import { ensureSessionIntegrity } from './utils/ensureSessionIntegrity.js';
 
 
 const app = express();
@@ -33,7 +34,7 @@ const corsOptions = {
         return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],
     exposedHeaders: ['Set-Cookie']
 };
@@ -50,6 +51,8 @@ app.listen(PORT, async () => {
     try {
         await connectMongoDb();
         ClodinaryConnection();
+        // Hər start-da ghost/dublikat session-ları təmizlə + unique indeks
+        await ensureSessionIntegrity();
         // startKassaCron(); // Pul Bitir basılanda kassaya əlavə olunur
         console.log(`Server is running on port ${PORT}`);
     } catch (error) {

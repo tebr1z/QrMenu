@@ -371,19 +371,30 @@ const AdminSalesReport = () => {
 
   const handleSaveCost = async (productId) => {
     const value = costDrafts[productId];
+    const salesCost = Number(value);
+    if (Number.isNaN(salesCost) || salesCost < 0) {
+      toast.error('Maya dəyəri düzgün daxil edin');
+      return;
+    }
     setSavingId(productId);
     try {
       const res = await apiClient.patch(`/Product/${productId}/sales-cost`, {
-        salesCost: Number(value) || 0,
+        salesCost,
       });
-        const updated = res.data?.product?.salesCost ?? (Number(value) || 0);
+      const updated = res.data?.product?.salesCost ?? salesCost;
       setProducts((prev) =>
         prev.map((p) => (String(p._id) === productId ? { ...p, salesCost: updated } : p))
       );
       setCostDrafts((prev) => ({ ...prev, [productId]: String(updated) }));
-      toast.success('Maya dəyəri saxlanıldı');
-    } catch {
-      toast.error('Maya dəyəri saxlanılmadı');
+      toast.success('Maya dəyəri saxlanıldı — mənfəət yeniləndi');
+    } catch (err) {
+      const status = err?.response?.status;
+      const msg = err?.response?.data?.error;
+      if (status === 403) {
+        toast.error(msg || 'Maya dəyərini yalnız Master Admin saxlaya bilər');
+      } else {
+        toast.error(msg || 'Maya dəyəri saxlanılmadı');
+      }
     } finally {
       setSavingId(null);
     }

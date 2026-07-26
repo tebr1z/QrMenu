@@ -11,38 +11,33 @@ function getYesterdayDateStr() {
     return `${y}-${m}-${day}`;
 }
 
+/**
+ * Köhnə cron: sifarişləri gecə kassaya YENİDƏN əlavə edirdi → ikiqat sayım.
+ * İndi pul Bitir anında atomik yazılır; bu funksiya yalnız log üçün qalıb.
+ */
 export async function runKassaDailyOnce() {
     try {
         const yesterday = getYesterdayDateStr();
-        const start = new Date(yesterday);
-        const end = new Date(yesterday);
-        end.setDate(end.getDate() + 1);
-
         const lastRun = await Config.findOne({ key: 'lastKassaUpdate' }).lean();
         if (lastRun && lastRun.value === yesterday) {
             return;
         }
+
+        const start = new Date(yesterday);
+        const end = new Date(yesterday);
+        end.setDate(end.getDate() + 1);
 
         const orders = await Order.find({
             createdAt: { $gte: start, $lt: end },
         }).lean();
         const orderSum = orders.reduce((s, o) => s + (Number(o.total) || 0), 0);
 
-        const configBalance = await Config.findOne({ key: 'kassaBalance' }).lean();
-        const current = configBalance && typeof configBalance.value === 'number' ? configBalance.value : 0;
-        const newBalance = current + orderSum;
-
-        await Config.findOneAndUpdate(
-            { key: 'kassaBalance' },
-            { key: 'kassaBalance', value: newBalance, updatedAt: new Date() },
-            { upsert: true, new: true }
-        );
         await Config.findOneAndUpdate(
             { key: 'lastKassaUpdate' },
             { key: 'lastKassaUpdate', value: yesterday, updatedAt: new Date() },
             { upsert: true, new: true }
         );
-        console.log(`[Kassa] ${yesterday} gəlir: ${orderSum.toFixed(2)}₼, kassa balans: ${newBalance.toFixed(2)}₼`);
+        console.log(`[Kassa] ${yesterday} sifariş cəmi (məlumat): ${orderSum.toFixed(2)}₼ — balans Bitir ilə yenilənir, cron əlavə etmir`);
     } catch (err) {
         console.error('[Kassa] Gecə 03:00 job xətası:', err);
     }

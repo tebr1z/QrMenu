@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 
 const orderSchema = mongoose.Schema({
+    /** Bir session yalnız bir dəfə bitmiş sifarişə çevrilə bilər */
+    sessionId: { type: String, unique: true, sparse: true },
     tableId: { type: String, required: true },
     tableName: { type: String, required: true },
     startTime: { type: Number, required: true },
@@ -25,8 +27,8 @@ const orderSchema = mongoose.Schema({
 });
 
 // Performance indexes for faster queries
-// Note: orderId already has index from unique: true, sparse: true
-orderSchema.index({ tableId: 1, startTime: 1, endTime: 1 }); // For duplicate check
+// Note: orderId/sessionId already have indexes from unique: true, sparse: true
+orderSchema.index({ tableId: 1, startTime: 1 }); // For same-session duplicate fallback
 orderSchema.index({ createdAt: -1 }); // For GetOrders sorting
 
 export default mongoose.model("Order", orderSchema); 

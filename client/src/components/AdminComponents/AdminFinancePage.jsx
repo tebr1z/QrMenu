@@ -1,8 +1,14 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createApiClient, fetchAllSettled } from '../../utils/http';
 import { MASTER_ADMIN_PASSWORD } from '../../config/auth';
 import { ContextUser } from '../../context/CheckUserContext';
 import { isMasterAdmin } from '../../config/roles';
+import {
+  toLocalDateStr,
+  parseLocalDateStart,
+  getLocalMonthRange,
+  getLocalWeekRange,
+} from '../../utils/localDate';
 
 const apiClient = createApiClient();
 
@@ -13,17 +19,26 @@ function isOperationalExpense(exp) {
   return true;
 }
 
+function sumAmounts(list, pick = (x) => x.amount) {
+  return list.reduce((s, item) => s + (Number(pick(item)) || 0), 0);
+}
+
+/** Çıxış sətri: həmişə düzgün işarə (reversal müsbət ola bilər) */
+function formatSignedMoney(value, formatMoney) {
+  const n = Number(value) || 0;
+  if (n < 0) return `+${formatMoney(Math.abs(n))}`;
+  return `-${formatMoney(n)}`;
+}
+
 const AdminFinancePage = () => {
   const { userRole } = useContext(ContextUser);
   const isMaster = isMasterAdmin(userRole);
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const today = new Date();
-    return today.toISOString().slice(0, 10);
-  });
+  const [selectedDate, setSelectedDate] = useState(() => toLocalDateStr());
   const [ordersDay, setOrdersDay] = useState([]);
   const [ordersMonth, setOrdersMonth] = useState([]);
   const [expensesDay, setExpensesDay] = useState([]);
   const [expensesMonth, setExpensesMonth] = useState([]);
+  const [expensesWeek, setExpensesWeek] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState('');
   const [editUnlocked, setEditUnlocked] = useState(false);
@@ -40,6 +55,7 @@ const AdminFinancePage = () => {
   const [kassaSaving, setKassaSaving] = useState(false);
   const [kassaWithdrawals, setKassaWithdrawals] = useState([]);
   const [payrollReport, setPayrollReport] = useState(null);
+  const [rangePayrollTotal, setRangePayrollTotal] = useState(0);
   const [showArchive, setShowArchive] = useState(false);
   const [selectedArchiveKey, setSelectedArchiveKey] = useState('');
   const [payrollFilter, setPayrollFilter] = useState('period');
@@ -51,16 +67,7 @@ const AdminFinancePage = () => {
   const [ordersRange, setOrdersRange] = useState([]);
   const [expensesRange, setExpensesRange] = useState([]);
 
-  const getMonthRange = (dateStr) => {
-    const d = new Date(dateStr);
-    const year = d.getFullYear();
-    const month = d.getMonth();
-    const start = new Date(year, month, 1);
-    const end = new Date(year, month + 1, 1);
-    return { start, end };
-  };
-
-  const loadKassaData = async () => {
+  const loadKassaData = useCallback(async () => {
     try {
       const settled = await fetchAllSettled([
         apiClient.get('/config/kassaBalance'),
@@ -82,26 +89,72 @@ const AdminFinancePage = () => {
       setKassaBalanceInput('0');
       setKassaWithdrawals([]);
     }
-  };
+  }, []);
 
-  const loadPayrollReport = async () => {
+  const loadPayrollReport = useCallback(async () => {
     try {
       const res = await apiClient.get(`/employee/payroll/finance?date=${selectedDate}`);
       setPayrollReport(res.data);
     } catch {
       setPayrollReport(null);
     }
-  };
+  }, [selectedDate]);
 
-  const fetchData = async () => {
+  const fetchWeekExpenses = useCallback(async (dateStr) => {
+    const { fromStr, toStr } = getLocalWeekRange(dateStr);
+    try {
+      const res = await apiClient.get(`/expense?from=${fromStr}&to=${toStr}`);
+      setExpensesWeek(
+        Array.isArray(res.data) ? res.data.filter(isOperationalExpense) : []
+      );
+    } catch {
+      setExpensesWeek([]);
+    }
+  }, []);
+
+  const fetchRangeData = useCallback(async (fromStr, toStr) => {
+    if (!fromStr || !toStr) return;
+    try {
+      const settled = await fetchAllSettled([
+        apiClient.get(`/order/GetOrders?from=${fromStr}&to=${toStr}`),
+        apiClient.get(`/expense?from=${fromStr}&to=${toStr}`),
+        apiClient.get(`/employee/withdrawals/all?from=${fromStr}&to=${toStr}`),
+      ]);
+      const [ordersRes, expensesRes, payrollRes] = settled;
+      setOrdersRange(ordersRes.ok && Array.isArray(ordersRes.data) ? ordersRes.data : []);
+      setExpensesRange(
+        expensesRes.ok && Array.isArray(expensesRes.data)
+          ? expensesRes.data.filter(isOperationalExpense)
+          : []
+      );
+      if (payrollRes.ok) {
+        const total = typeof payrollRes.data?.total === 'number'
+          ? payrollRes.data.total
+          : sumAmounts(Array.isArray(payrollRes.data?.withdrawals) ? payrollRes.data.withdrawals : []);
+        setRangePayrollTotal(total);
+      } else {
+        setRangePayrollTotal(0);
+      }
+    } catch {
+      setOrdersRange([]);
+      setExpensesRange([]);
+      setRangePayrollTotal(0);
+    }
+  }, []);
+
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { start, end } = getMonthRange(selectedDate);
+      const { startStr, endExclusiveStr } = getLocalMonthRange(selectedDate);
+      const monthLast = parseLocalDateStart(endExclusiveStr);
+      monthLast.setDate(monthLast.getDate() - 1);
+      const monthEndStr = toLocalDateStr(monthLast);
+
       const settled = await fetchAllSettled([
         apiClient.get(`/order/GetOrders?date=${selectedDate}`),
-        apiClient.get(`/order/GetOrders?from=${start.toISOString()}&to=${end.toISOString()}`),
+        apiClient.get(`/order/GetOrders?from=${startStr}&to=${monthEndStr}`),
         apiClient.get(`/expense?date=${selectedDate}`),
-        apiClient.get(`/expense?from=${start.toISOString()}&to=${end.toISOString()}`),
+        apiClient.get(`/expense?from=${startStr}&to=${monthEndStr}`),
       ]);
       const [dayOrdersRes, monthOrdersRes, dayExpensesRes, monthExpensesRes] = settled;
 
@@ -120,6 +173,9 @@ const AdminFinancePage = () => {
 
       await loadKassaData();
       await loadPayrollReport();
+      if (expenseRange === 'week') {
+        await fetchWeekExpenses(selectedDate);
+      }
 
       if (settled.some((r) => !r.ok)) {
         setNotification('Bəzi maliyyə məlumatları qismən yüklənmədi');
@@ -135,71 +191,56 @@ const AdminFinancePage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedDate, expenseRange, loadKassaData, loadPayrollReport, fetchWeekExpenses]);
 
   useEffect(() => {
     fetchData();
   }, [selectedDate]);
 
   useEffect(() => {
-    const { start, end } = getMonthRange(selectedDate);
-    setRangeStart(start.toISOString().slice(0, 10));
-    const lastDay = new Date(end);
-    lastDay.setDate(lastDay.getDate() - 1);
-    setRangeEnd(lastDay.toISOString().slice(0, 10));
+    const { startStr, endExclusiveStr } = getLocalMonthRange(selectedDate);
+    const monthLast = parseLocalDateStart(endExclusiveStr);
+    monthLast.setDate(monthLast.getDate() - 1);
+    setRangeStart(startStr);
+    setRangeEnd(toLocalDateStr(monthLast));
   }, [selectedDate]);
 
   useEffect(() => {
     if (!rangeStart || !rangeEnd) return;
-    const start = new Date(rangeStart);
-    const end = new Date(rangeEnd);
-    end.setHours(23, 59, 59, 999);
-    const endNext = new Date(end);
-    endNext.setDate(endNext.getDate() + 1);
-    const fetchRange = async () => {
-      try {
-        const settled = await fetchAllSettled([
-          apiClient.get(`/order/GetOrders?from=${start.toISOString()}&to=${endNext.toISOString()}`),
-          apiClient.get(`/expense?from=${start.toISOString()}&to=${endNext.toISOString()}`),
-        ]);
-        const [ordersRes, expensesRes] = settled;
-        setOrdersRange(ordersRes.ok && Array.isArray(ordersRes.data) ? ordersRes.data : []);
-        setExpensesRange(
-          expensesRes.ok && Array.isArray(expensesRes.data)
-            ? expensesRes.data.filter(isOperationalExpense)
-            : []
-        );
-      } catch {
-        setOrdersRange([]);
-        setExpensesRange([]);
-      }
-    };
-    fetchRange();
-  }, [rangeStart, rangeEnd]);
+    fetchRangeData(rangeStart, rangeEnd);
+  }, [rangeStart, rangeEnd, fetchRangeData]);
+
+  useEffect(() => {
+    if (expenseRange === 'week') {
+      fetchWeekExpenses(selectedDate);
+    }
+  }, [expenseRange, selectedDate, fetchWeekExpenses]);
 
   const dayIncome = useMemo(
-    () => ordersDay.reduce((sum, o) => sum + (o.total || 0), 0),
+    () => sumAmounts(ordersDay, (o) => o.total),
     [ordersDay]
   );
-  const monthIncome = useMemo(
-    () => ordersMonth.reduce((sum, o) => sum + (o.total || 0), 0),
-    [ordersMonth]
-  );
   const dayExpense = useMemo(
-    () => expensesDay.reduce((sum, e) => sum + (e.amount || 0), 0),
+    () => sumAmounts(expensesDay),
     [expensesDay]
   );
-  const monthExpense = useMemo(
-    () => expensesMonth.reduce((sum, e) => sum + (e.amount || 0), 0),
-    [expensesMonth]
+
+  // Maaş — EmployeeWithdrawal (payrollReport); sahib çəkilməsi — kassa jurnalı
+  const dayPayrollOut = useMemo(
+    () => Number(payrollReport?.today?.total) || 0,
+    [payrollReport]
   );
-
-  const dayNet = dayIncome - dayExpense;
-  const monthNet = monthIncome - monthExpense;
-
-  const rangeIncome = useMemo(() => ordersRange.reduce((s, o) => s + (o.total || 0), 0), [ordersRange]);
-  const rangeExpense = useMemo(() => expensesRange.reduce((s, e) => s + (e.amount || 0), 0), [expensesRange]);
-  const rangeNet = rangeIncome - rangeExpense;
+  const dayOwnerOut = useMemo(
+    () =>
+      sumAmounts(
+        kassaWithdrawals.filter(
+          (w) => (w.date || '').slice(0, 10) === selectedDate && w.source !== 'employee'
+        )
+      ),
+    [kassaWithdrawals, selectedDate]
+  );
+  const dayCashOut = dayPayrollOut + dayOwnerOut;
+  const dayNet = dayIncome - dayExpense - dayCashOut;
 
   const selectedMonthKey = selectedDate.slice(0, 7);
   const thisMonthWithdrawals = useMemo(() => {
@@ -207,41 +248,49 @@ const AdminFinancePage = () => {
       .filter((w) => (w.date || w.at || '').slice(0, 7) === selectedMonthKey)
       .sort((a, b) => (b.at || b.date || '').localeCompare(a.at || a.date || ''));
   }, [kassaWithdrawals, selectedMonthKey]);
+
+  const rangeIncome = useMemo(() => sumAmounts(ordersRange, (o) => o.total), [ordersRange]);
+  const rangeExpense = useMemo(() => sumAmounts(expensesRange), [expensesRange]);
+  const rangePayrollOut = rangePayrollTotal;
+  const rangeOwnerOut = useMemo(
+    () =>
+      sumAmounts(
+        kassaWithdrawals.filter((w) => {
+          const d = (w.date || '').slice(0, 10);
+          return d >= rangeStart && d <= rangeEnd && w.source !== 'employee';
+        })
+      ),
+    [kassaWithdrawals, rangeStart, rangeEnd]
+  );
+  const rangeCashOut = rangePayrollOut + rangeOwnerOut;
+  const rangeNet = rangeIncome - rangeExpense - rangeCashOut;
+
   const totalWithdrawn = useMemo(
-    () => kassaWithdrawals.reduce((s, w) => s + (Number(w.amount) || 0), 0),
+    () => sumAmounts(kassaWithdrawals),
     [kassaWithdrawals]
   );
 
-  const getExpenseDate = (exp) => new Date(exp.date || exp.createdAt);
-
-  const weekRange = useMemo(() => {
-    const base = new Date(selectedDate);
-    const to = new Date(base);
-    to.setHours(23, 59, 59, 999);
-    const from = new Date(base);
-    from.setDate(from.getDate() - 6);
-    from.setHours(0, 0, 0, 0);
-    return { from, to };
-  }, [selectedDate]);
-
   const visibleExpenses = useMemo(() => {
-    if (expenseRange === 'day') {
-      return expensesDay;
-    }
-    if (expenseRange === 'week') {
-      const { from, to } = weekRange;
-      return expensesMonth.filter(exp => {
-        const d = getExpenseDate(exp);
-        return d >= from && d <= to;
-      });
-    }
+    if (expenseRange === 'day') return expensesDay;
+    if (expenseRange === 'week') return expensesWeek;
     return expensesMonth;
-  }, [expenseRange, expensesDay, expensesMonth, weekRange]);
+  }, [expenseRange, expensesDay, expensesWeek, expensesMonth]);
 
   const visibleExpenseTotal = useMemo(
-    () => visibleExpenses.reduce((sum, e) => sum + (e.amount || 0), 0),
+    () => sumAmounts(visibleExpenses),
     [visibleExpenses]
   );
+
+  const syncExpenseIntoRange = (expense, mode) => {
+    if (!expense?._id || !rangeStart || !rangeEnd) return;
+    const d = toLocalDateStr(parseLocalDateStart(expense.date || expense.createdAt || selectedDate));
+    if (d < rangeStart || d > rangeEnd) return;
+    if (mode === 'add') {
+      setExpensesRange((prev) => [expense, ...prev.filter((e) => e._id !== expense._id)]);
+    } else {
+      setExpensesRange((prev) => prev.filter((e) => e._id !== expense._id));
+    }
+  };
 
   const handleAddExpense = async (e) => {
     e.preventDefault();
@@ -249,21 +298,6 @@ const AdminFinancePage = () => {
     const amount = Number(expenseAmount) || 0;
     if (amount <= 0) return;
     try {
-      let currentBalance = kassaBalance !== null ? kassaBalance : null;
-      if (currentBalance === null) {
-        try {
-          const balanceRes = await apiClient.get('/config/kassaBalance');
-          const v = balanceRes.data?.value;
-          currentBalance = typeof v === 'number' ? v : 0;
-        } catch {
-          currentBalance = 0;
-        }
-      }
-      if (currentBalance < amount) {
-        setNotification('Kassada bu qədər pul yoxdur');
-        setTimeout(() => setNotification(''), 3000);
-        return;
-      }
       const payload = {
         name: expenseName.trim(),
         amount,
@@ -273,70 +307,82 @@ const AdminFinancePage = () => {
       const res = await apiClient.post('/expense', payload);
       const created = res.data?.expense;
       if (created) {
-        setExpensesDay(prev => [created, ...prev]);
-        setExpensesMonth(prev => [created, ...prev]);
+        setExpensesDay((prev) => [created, ...prev]);
+        setExpensesMonth((prev) => [created, ...prev]);
+        setExpensesWeek((prev) => {
+          const { fromStr, toStr } = getLocalWeekRange(selectedDate);
+          const d = toLocalDateStr(parseLocalDateStart(created.date || selectedDate));
+          if (d >= fromStr && d <= toStr) return [created, ...prev];
+          return prev;
+        });
+        syncExpenseIntoRange(created, 'add');
         setExpenseName('');
         setExpenseAmount('');
         setExpenseNote('');
-        const newBalance = currentBalance - amount;
-        await apiClient.put('/config/kassaBalance', { value: newBalance });
-        setKassaBalance(newBalance);
-        setKassaBalanceInput(String(newBalance));
+        if (typeof res.data?.kassaBalance === 'number') {
+          setKassaBalance(res.data.kassaBalance);
+          setKassaBalanceInput(String(res.data.kassaBalance));
+        } else {
+          await loadKassaData();
+        }
         setNotification(`Xərc əlavə olundu. Kassadan ${formatMoney(amount)} çıxıldı.`);
         setTimeout(() => setNotification(''), 4000);
       } else {
         await fetchData();
+        if (rangeStart && rangeEnd) await fetchRangeData(rangeStart, rangeEnd);
       }
     } catch (err) {
-      setNotification('Xərc əlavə edilərkən xəta baş verdi');
+      setNotification(err.response?.data?.error || 'Xərc əlavə edilərkən xəta baş verdi');
       setTimeout(() => setNotification(''), 4000);
     }
   };
 
   const handleDeleteExpense = async (deleteId) => {
     if (!deleteId) return;
+    if (!isMaster || !editUnlocked) {
+      setNotification('Xərc silmək yalnız Master Admin + redaktə kilidi ilə mümkündür');
+      setTimeout(() => setNotification(''), 4000);
+      return;
+    }
     if (!window.confirm('Bu xərci silmək istəyirsiniz?')) return;
-    const expense = expensesDay.find(e => e._id === deleteId) || expensesMonth.find(e => e._id === deleteId);
-    const amount = expense ? (Number(expense.amount) || 0) : 0;
+    const expense =
+      expensesDay.find((e) => e._id === deleteId) ||
+      expensesMonth.find((e) => e._id === deleteId) ||
+      expensesWeek.find((e) => e._id === deleteId);
+    const amount = expense ? Number(expense.amount) || 0 : 0;
     try {
-      await apiClient.delete(`/expense/${deleteId}`);
-      setExpensesDay(prev => prev.filter(e => e._id !== deleteId));
-      setExpensesMonth(prev => prev.filter(e => e._id !== deleteId));
-      if (amount > 0) {
-        let currentBalance = kassaBalance !== null ? kassaBalance : null;
-        if (currentBalance === null) {
-          try {
-            const balanceRes = await apiClient.get('/config/kassaBalance');
-            const v = balanceRes.data?.value;
-            currentBalance = typeof v === 'number' ? v : 0;
-          } catch {
-            currentBalance = 0;
-          }
-        }
-        const newBalance = currentBalance + amount;
-        await apiClient.put('/config/kassaBalance', { value: newBalance });
-        setKassaBalance(newBalance);
-        setKassaBalanceInput(String(newBalance));
-        setNotification(`Xərc silindi. ${formatMoney(amount)} kassaya qaytarıldı.`);
+      const res = await apiClient.delete(`/expense/${deleteId}`);
+      setExpensesDay((prev) => prev.filter((e) => e._id !== deleteId));
+      setExpensesMonth((prev) => prev.filter((e) => e._id !== deleteId));
+      setExpensesWeek((prev) => prev.filter((e) => e._id !== deleteId));
+      if (expense) syncExpenseIntoRange(expense, 'remove');
+      else setExpensesRange((prev) => prev.filter((e) => e._id !== deleteId));
+      if (typeof res.data?.kassaBalance === 'number') {
+        setKassaBalance(res.data.kassaBalance);
+        setKassaBalanceInput(String(res.data.kassaBalance));
       } else {
-        setNotification('Xərc silindi');
+        await loadKassaData();
       }
+      setNotification(
+        amount > 0
+          ? `Xərc silindi. ${formatMoney(amount)} kassaya qaytarıldı.`
+          : 'Xərc silindi'
+      );
       setTimeout(() => setNotification(''), 4000);
     } catch (err) {
-      setNotification('Xərc silinərkən xəta baş verdi');
+      setNotification(err.response?.data?.error || 'Xərc silinərkən xəta baş verdi');
       setTimeout(() => setNotification(''), 4000);
     }
   };
 
-  const formatMoney = (value) => `${value.toFixed(2)}₼`;
-
-  const selectedMonthLabel = useMemo(() => {
-    const d = new Date(selectedDate);
-    return d.toLocaleDateString('az-AZ', { month: 'long', year: 'numeric' });
-  }, [selectedDate]);
+  const formatMoney = (value) => `${(Number(value) || 0).toFixed(2)}₼`;
 
   const formatDate = (value) => {
-    const d = new Date(value);
+    const raw = String(value || '');
+    const d =
+      /^\d{4}-\d{2}-\d{2}/.test(raw) && raw.length <= 10
+        ? parseLocalDateStart(raw)
+        : new Date(value);
     return d.toLocaleDateString('az-AZ', {
       day: '2-digit',
       month: '2-digit',
@@ -372,29 +418,23 @@ const AdminFinancePage = () => {
       setTimeout(() => setNotification(''), 3000);
       return;
     }
-    const current = kassaBalance !== null ? kassaBalance : 0;
-    if (amount > current) {
-      setNotification('Kassada bu qədər pul yoxdur');
-      setTimeout(() => setNotification(''), 3000);
-      return;
-    }
     setKassaSaving(true);
     try {
-      const newBalance = current - amount;
-      const newEntry = { amount, date: selectedDate };
-      const newList = [...kassaWithdrawals, newEntry];
-      await Promise.all([
-        apiClient.put('/config/kassaBalance', { value: newBalance }),
-        apiClient.put('/config/kassaWithdrawals', { value: newList }),
-      ]);
-      setKassaBalance(newBalance);
-      setKassaBalanceInput(String(newBalance));
-      setKassaWithdrawals(newList);
+      const res = await apiClient.post('/config/kassa/withdraw', {
+        amount,
+        label: 'Kassadan çəkilmə',
+      });
+      const newBalance = typeof res.data?.balance === 'number' ? res.data.balance : null;
+      if (newBalance !== null) {
+        setKassaBalance(newBalance);
+        setKassaBalanceInput(String(newBalance));
+      }
+      await loadKassaData();
       setWithdrawalInput('');
-      setNotification(`Kassadan ${formatMoney(amount)} çəkildi. Qalan: ${formatMoney(newBalance)}`);
+      setNotification(`Kassadan ${formatMoney(amount)} çəkildi${newBalance !== null ? `. Qalan: ${formatMoney(newBalance)}` : ''}`);
       setTimeout(() => setNotification(''), 4000);
-    } catch {
-      setNotification('Kassadan çəkərkən xəta baş verdi');
+    } catch (err) {
+      setNotification(err.response?.data?.error || 'Kassadan çəkərkən xəta baş verdi');
       setTimeout(() => setNotification(''), 4000);
     } finally {
       setKassaSaving(false);
@@ -412,6 +452,7 @@ const AdminFinancePage = () => {
       }
       await loadPayrollReport();
       await loadKassaData();
+      if (rangeStart && rangeEnd) await fetchRangeData(rangeStart, rangeEnd);
       setWithdrawalToDelete(null);
       setNotification('Maaş çıxışı silindi. Pul kassaya qaytarıldı, işçi həmin günü yenidən götürə bilər.');
       setTimeout(() => setNotification(''), 4000);
@@ -424,27 +465,32 @@ const AdminFinancePage = () => {
   };
 
   const handleDeleteWithdrawal = async (w) => {
-    const idx = kassaWithdrawals.findIndex(
-      (x) => String(x.date) === String(w.date) && Number(x.amount) === Number(w.amount)
-    );
-    if (idx === -1) return;
-    const amount = Number(w.amount) || 0;
-    const newList = kassaWithdrawals.filter((_, i) => i !== idx);
-    const current = kassaBalance !== null ? kassaBalance : 0;
-    const newBalance = current + amount;
+    if (w.source === 'employee') {
+      setNotification('İşçi maaşı çıxışını maaş bölməsindən silin');
+      setTimeout(() => setNotification(''), 3000);
+      return;
+    }
     setKassaSaving(true);
     try {
-      await Promise.all([
-        apiClient.put('/config/kassaBalance', { value: newBalance }),
-        apiClient.put('/config/kassaWithdrawals', { value: newList }),
-      ]);
-      setKassaBalance(newBalance);
-      setKassaBalanceInput(String(newBalance));
-      setKassaWithdrawals(newList);
-      setNotification(`Çəkilmə silindi. ${formatMoney(amount)} kassaya geri əlavə olundu`);
+      const res = await apiClient.post('/config/kassa/withdraw/reverse', {
+        createdAt: w.createdAt,
+        date: w.date,
+        amount: w.amount,
+        label: w.label,
+      });
+      if (typeof res.data?.balance === 'number') {
+        setKassaBalance(res.data.balance);
+        setKassaBalanceInput(String(res.data.balance));
+      }
+      if (Array.isArray(res.data?.list)) {
+        setKassaWithdrawals(res.data.list);
+      } else {
+        await loadKassaData();
+      }
+      setNotification(`Çəkilmə silindi. ${formatMoney(Number(w.amount) || 0)} kassaya geri əlavə olundu`);
       setTimeout(() => setNotification(''), 3000);
-    } catch {
-      setNotification('Çəkilmə silinərkən xəta baş verdi');
+    } catch (err) {
+      setNotification(err.response?.data?.error || 'Çəkilmə silinərkən xəta baş verdi');
       setTimeout(() => setNotification(''), 4000);
     } finally {
       setKassaSaving(false);
@@ -672,7 +718,7 @@ const AdminFinancePage = () => {
           <div>
             <h1 className="text-3xl font-bold text-gray-800 tracking-tight">Günlük Xərclər</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Gündəlik gəlir, məhsul/material xərcləri və kassa. İşçi maaşları ayrıca bölmədədir.
+              Gəlir, bütün xərclər (məhsul, işçi maaşı, kassadan çəkilmə) və kassa balansı.
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -716,7 +762,7 @@ const AdminFinancePage = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-white border rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-semibold text-gray-600">Bu gün</span>
+              <span className="text-sm font-semibold text-gray-600">Seçilmiş gün</span>
               <span className="text-xs text-gray-400">{selectedDate}</span>
             </div>
             <div className="space-y-2">
@@ -726,7 +772,21 @@ const AdminFinancePage = () => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Məhsul xərci</span>
-                <span className="text-lg font-bold text-red-600">-{formatMoney(dayExpense)}</span>
+                <span className={`text-lg font-bold ${dayExpense < 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {formatSignedMoney(dayExpense, formatMoney)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">İşçi maaşı</span>
+                <span className={`text-lg font-bold ${dayPayrollOut < 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {formatSignedMoney(dayPayrollOut, formatMoney)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Kassadan çəkilmə</span>
+                <span className={`text-lg font-bold ${dayOwnerOut < 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {formatSignedMoney(dayOwnerOut, formatMoney)}
+                </span>
               </div>
               <div className="flex items-center justify-between border-t pt-2 mt-1">
                 <span className="text-sm font-semibold text-gray-700">Günlük xalis qazanc</span>
@@ -764,8 +824,22 @@ const AdminFinancePage = () => {
                 <span className="text-lg font-bold text-green-700">{formatMoney(rangeIncome)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Xərc (məhsul)</span>
-                <span className="text-lg font-bold text-red-600">-{formatMoney(rangeExpense)}</span>
+                <span className="text-sm text-gray-600">Məhsul xərci</span>
+                <span className={`text-lg font-bold ${rangeExpense < 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {formatSignedMoney(rangeExpense, formatMoney)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">İşçi maaşı</span>
+                <span className={`text-lg font-bold ${rangePayrollOut < 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {formatSignedMoney(rangePayrollOut, formatMoney)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Kassadan çəkilmə</span>
+                <span className={`text-lg font-bold ${rangeOwnerOut < 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {formatSignedMoney(rangeOwnerOut, formatMoney)}
+                </span>
               </div>
               <div className="flex items-center justify-between border-t pt-2 mt-1">
                 <span className="text-sm font-semibold text-gray-700">Xalis qazanc</span>
@@ -788,7 +862,9 @@ const AdminFinancePage = () => {
               <>
                 <p className="text-[10px] uppercase tracking-wider text-amber-700/80 font-medium mb-0.5">Cari balans</p>
                 <p className="text-2xl font-extrabold text-amber-800 mb-1">{formatMoney(kassaBalance)}</p>
-                <p className="text-[11px] text-gray-500 mb-4">Pul Masaların idarəsi → Bitir basılanda birbaşa kassaya əlavə olunur.</p>
+                <p className="text-[11px] text-gray-500 mb-4">
+                  Xalis qazanc kassa ilə eyni məntiqdədir: gəlir − məhsul xərci − işçi maaşı − kassadan çəkilmələr.
+                </p>
               </>
             )}
 
@@ -843,7 +919,7 @@ const AdminFinancePage = () => {
 
             <div className="pt-3 border-t border-amber-200/60">
               <p className="text-[11px] text-gray-500">
-                İşçi maaşları kassadan çıxır, amma günlük xərclərə daxil deyil — aşağıdakı ayrı bölmədə görünür.
+                İşçi maaşları və digər çəkilmələr xalis qazancdan da çıxılır; detallar aşağıdakı bölmədədir.
               </p>
             </div>
 
@@ -1133,7 +1209,7 @@ const AdminFinancePage = () => {
       {/* Bu gün üçün xərc əlavə etmə və bu günün xərcləri */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white border rounded-2xl p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-800 mb-3">Bu gün üçün məhsul xərci əlavə et</h2>
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">Seçilmiş gün üçün məhsul xərci əlavə et</h2>
           <form onSubmit={handleAddExpense} className="space-y-3">
             <div>
               <label className="text-xs font-semibold text-gray-600 mb-1 block">Məhsul / material adı</label>
@@ -1176,13 +1252,13 @@ const AdminFinancePage = () => {
 
         <div className="bg-white border rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-800">Bu günün məhsul xərcləri</h2>
+            <h2 className="text-lg font-semibold text-gray-800">Seçilmiş günün məhsul xərcləri</h2>
             <span className="text-xs text-gray-500">
               Cəmi: {formatMoney(dayExpense)}
             </span>
           </div>
           {expensesDay.length === 0 ? (
-            <div className="text-sm text-gray-500">Bu gün üçün xərc daxil edilməyib.</div>
+            <div className="text-sm text-gray-500">Bu tarix üçün xərc daxil edilməyib.</div>
           ) : (
             <div className="max-h-72 overflow-y-auto">
               <table className="w-full text-sm">
@@ -1190,11 +1266,13 @@ const AdminFinancePage = () => {
                   <tr>
                     <th className="text-left px-3 py-2 font-semibold">Ad</th>
                     <th className="text-right px-3 py-2 font-semibold">Məbləğ</th>
-                    <th className="text-center px-3 py-2 font-semibold">Əməliyyat</th>
+                    {isMaster && (
+                      <th className="text-center px-3 py-2 font-semibold">Əməliyyat</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
-                  {expensesDay.map(exp => (
+                  {expensesDay.map((exp) => (
                     <tr key={exp._id} className="border-b last:border-b-0">
                       <td className="px-3 py-2">
                         <div className="font-medium text-gray-800">{exp.name}</div>
@@ -1205,15 +1283,28 @@ const AdminFinancePage = () => {
                       <td className="px-3 py-2 text-right font-semibold text-red-600">
                         -{formatMoney(exp.amount || 0)}
                       </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteExpense(exp._id)}
-                          className="text-xs text-red-600 hover:text-red-800"
-                        >
-                          Sil
-                        </button>
-                      </td>
+                      {isMaster && (
+                        <td className="px-3 py-2 text-center">
+                          {editUnlocked ? (
+                            <button
+                              type="button"
+                              onClick={() => requireEditUnlock(() => handleDeleteExpense(exp._id))}
+                              className="text-xs text-red-600 hover:text-red-800"
+                            >
+                              Sil
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => requireEditUnlock(() => handleDeleteExpense(exp._id))}
+                              className="text-xs text-gray-500 hover:text-red-700"
+                              title="Silmək üçün redaktə kilidini açın"
+                            >
+                              Kilidli
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

@@ -80,14 +80,22 @@ export async function ensureCompletedPeriodsArchived(referenceDate = new Date())
     }
 }
 
+function localDateKey(date = new Date()) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 export async function getFinancePayrollReport(dateStr) {
-    const ref = dateStr ? new Date(dateStr) : new Date();
+    const dayKey = dateStr
+        ? String(dateStr).slice(0, 10)
+        : localDateKey(new Date());
+    const ref = new Date(`${dayKey}T12:00:00`);
     await ensureCompletedPeriodsArchived(new Date());
 
     const period = getPayPeriod(ref);
     const current = await buildPeriodSummary(period.start, period.end);
-
-    const dayKey = dateStr || ref.toISOString().slice(0, 10);
     const dayWithdrawals = await EmployeeWithdrawal.find({ dateKey: dayKey })
         .sort({ withdrawnAt: -1 })
         .lean();

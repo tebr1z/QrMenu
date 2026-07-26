@@ -27,5 +27,10 @@ const tableSessionSchema = mongoose.Schema({
 // Performance indexes for faster queries
 tableSessionSchema.index({ isActive: 1 }); // For /Active endpoint
 tableSessionSchema.index({ tableId: 1 }); // For finding sessions by table
+/** Eyni masa üçün eyni anda yalnız 1 aktiv session */
+tableSessionSchema.index(
+  { tableId: 1 },
+  { unique: true, partialFilterExpression: { isActive: true }, name: 'unique_active_table' }
+);
 
 export default mongoose.model("TableSession", tableSessionSchema); 

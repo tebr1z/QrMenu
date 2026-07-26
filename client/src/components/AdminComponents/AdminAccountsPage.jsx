@@ -38,26 +38,27 @@ const AdminAccountsPage = () => {
     fetchOrders();
   }, [selectedDate]);
 
-  // Duplicate order-ları tap
+  // Duplicate order-ları tap (sessionId və ya eyni masa+startTime)
   const findDuplicates = () => {
     const duplicates = [];
-    const seen = new Map(); // tableId_startTime_endTime -> [orders]
-    
-    orders.forEach(order => {
-      const key = `${order.tableId}_${order.startTime}_${order.endTime}`;
+    const seen = new Map();
+
+    orders.forEach((order) => {
+      const key = order.sessionId
+        ? `session_${order.sessionId}`
+        : `${order.tableId}_${order.startTime}`;
       if (!seen.has(key)) {
         seen.set(key, []);
       }
       seen.get(key).push(order);
     });
-    
-    // 2 və ya daha çox order varsa, duplicate-dir
-    seen.forEach((orderList, key) => {
+
+    seen.forEach((orderList) => {
       if (orderList.length > 1) {
         duplicates.push(...orderList);
       }
     });
-    
+
     return duplicates;
   };
 
@@ -74,7 +75,12 @@ const AdminAccountsPage = () => {
       await fetchOrders(); // Yenilə
       setTimeout(() => setNotification(''), 3000);
     } catch (err) {
-      setNotification('Sifariş silinərkən xəta baş verdi');
+      const status = err?.response?.status;
+      setNotification(
+        status === 403
+          ? 'Sifariş silmək yalnız Master Admin üçündür'
+          : (err?.response?.data?.error || 'Sifariş silinərkən xəta baş verdi')
+      );
       setTimeout(() => setNotification(''), 3000);
     } finally {
       setLoading(false);
@@ -101,12 +107,12 @@ const AdminAccountsPage = () => {
       const toDelete = [];
       
       duplicates.forEach(order => {
-        const key = `${order.tableId}_${order.startTime}_${order.endTime}`;
+        const key = order.sessionId
+          ? `session_${order.sessionId}`
+          : `${order.tableId}_${order.startTime}`;
         if (!seen.has(key)) {
-          // İlk order-i saxla (ən yeni)
           seen.set(key, order);
         } else {
-          // Qalan order-ləri sil
           toDelete.push(order);
         }
       });

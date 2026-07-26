@@ -9,8 +9,15 @@ export function getCookie(name) {
 
 const RETRYABLE = new Set(['ECONNABORTED', 'ERR_NETWORK', 'ETIMEDOUT']);
 
+/** POST/PUT/PATCH/DELETE avtomatik retry → dublikat session/sifariş yaradır */
+function isMutatingMethod(method) {
+    const m = String(method || 'get').toLowerCase();
+    return m === 'post' || m === 'put' || m === 'patch' || m === 'delete';
+}
+
 function shouldRetryRequest(error) {
     if (!error.config || error.config.__retryCount >= 2) return false;
+    if (isMutatingMethod(error.config.method)) return false;
     if (!error.response) return true;
     const status = error.response.status;
     return status >= 500 || status === 408 || status === 429;

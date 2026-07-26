@@ -70,6 +70,7 @@ const AdminTableManagePage = () => {
   const isProcessingPayment = useRef(false); // Track if payment is being processed
   const isFinishingSession = useRef(false); // Track if session is being finished
   const processedOrderIds = useRef(new Set()); // Track processed order IDs to prevent duplicates
+  const startingTableIds = useRef(new Set()); // Eyni masa üçün paralel Start olmasın
   const sessionCountRef = useRef(0);
 
   // Local storage key for temporary menu data
@@ -404,6 +405,13 @@ const AdminTableManagePage = () => {
       setLoading(true);
       let failedCount = 0;
       try {
+        // Əvvəl ghost/dublikat session-ları təmizlə (gələcək problemlərin qarşısı)
+        try {
+          await apiClient.post('/tablesession/Repair');
+        } catch {
+          // Repair uğursuz olsa belə səhifə işləsin
+        }
+
         const settled = await fetchAllSettled([
           apiClient.get('/table/GetTables'),
           apiClient.get('/tablesession/Active'),
@@ -523,24 +531,32 @@ const AdminTableManagePage = () => {
     return () => clearInterval(interval);
   }, [sessions.length]); // Only depend on sessions count, not the entire array
 
-  // Start table session - open modal for PS selection
   // Start table session immediately with default PS
   const handleStartClick = async (table) => {
+    const tableKey = String(table.id || table._id || '');
+    if (!tableKey) return;
+
+    // Cüt klik / yavaş şəbəkə — eyni masa üçün ikinci Start getməsin
+    if (startingTableIds.current.has(tableKey) || loading) {
+      return;
+    }
+
+    const existingSession = sessions.find(
+      (s) => String(s.tableId) === tableKey
+    );
+    if (existingSession) {
+      setNotification('Bu masa artıq aktivdir, əvvəlcə bitirin');
+      setNotificationType('warning');
+      setTimeout(() => {
+        setNotification('');
+        setNotificationType('info');
+      }, 3000);
+      return;
+    }
+
+    startingTableIds.current.add(tableKey);
     setLoading(true);
     try {
-      // Prevent starting if this table already has active session
-      const existingSession = sessions.find(
-        s => s.tableId === (table.id || table._id)
-      );
-      if (existingSession) {
-        setNotification('Bu masa artıq aktivdir, əvvəlcə bitirin');
-        setNotificationType('warning');
-        setTimeout(() => {
-          setNotification('');
-          setNotificationType('info');
-        }, 3000);
-        return;
-      }
 
       // Use default PS if available, otherwise use first available PS or null
       let psType = table.defaultPS || null;
@@ -571,7 +587,7 @@ const AdminTableManagePage = () => {
 
       const now = Date.now();
       const newSession = {
-        tableId: table.id || table._id,
+        tableId: tableKey,
         tableName: table.name,
         startTime: now,
         hourlyPrice: hourlyPrice,
@@ -594,11 +610,16 @@ const AdminTableManagePage = () => {
       const response = await apiClient.post('/tablesession/Start', newSession);
       const savedSession = response.data.session;
       
-      setSessions(prev => [...prev, savedSession]);
+      setSessions(prev => {
+        if (prev.some((s) => String(s._id) === String(savedSession._id))) return prev;
+        // Eyni masa üçün köhnə/ghost session qalmasın
+        const withoutSameTable = prev.filter((s) => String(s.tableId) !== tableKey);
+        return [...withoutSameTable, savedSession];
+      });
 
       await logTableActivity(apiClient, `${getStaffName()} — ${table.name} masasını açdı`, {
         type: 'open_table',
-        tableId: table.id || table._id,
+        tableId: tableKey,
         tableName: table.name,
       });
       
@@ -612,9 +633,23 @@ const AdminTableManagePage = () => {
       }
     } catch (err) {
       console.error('Masa başlatılarkən xəta:', err);
-      setNotification('Masa başlatılarkən xəta baş verdi');
-      setNotificationType('error');
+      if (err.response?.status === 409 && err.response?.data?.session) {
+        const existing = err.response.data.session;
+        setSessions((prev) => {
+          const withoutSameTable = prev.filter((s) => String(s.tableId) !== tableKey);
+          if (withoutSameTable.some((s) => String(s._id) === String(existing._id))) {
+            return withoutSameTable;
+          }
+          return [...withoutSameTable, existing];
+        });
+        setNotification('Bu masa artıq açıqdır');
+        setNotificationType('warning');
+      } else {
+        setNotification('Masa başlatılarkən xəta baş verdi');
+        setNotificationType('error');
+      }
     } finally {
+      startingTableIds.current.delete(tableKey);
       setLoading(false);
     }
   };
@@ -1257,127 +1292,122 @@ const AdminTableManagePage = () => {
     });
   };
 
-  // Complete payment and finish session
+  // Complete payment and finish session (atomik: order + session silmə serverdə bir yerdə)
   const handleCompletePayment = async () => {
     if (!modalOrder) return;
-    
-    // Prevent multiple simultaneous calls
+
     if (isProcessingPayment.current) {
-      // Payment already being processed
       return;
     }
-    
-    // Create unique order ID to prevent duplicates
-    const orderId = `${modalOrder.tableId}_${modalOrder.startTime}_${modalOrder.endTime}_${Date.now()}`;
-    
-    // Check if this exact order was already processed
-    if (processedOrderIds.current.has(orderId)) {
-      // Order already processed
+
+    const sessionId = modalOrder.sessionId
+      || sessions.find((s) => s.tableId === modalOrder.tableId)?._id;
+
+    if (!sessionId) {
+      setNotification('Aktiv session tapılmadı');
+      setNotificationType('error');
+      return;
+    }
+
+    // Stabil kilid: eyni session ikinci dəfə işlənməsin (Date.now()-suz)
+    const lockKey = `session_${sessionId}`;
+    if (processedOrderIds.current.has(lockKey)) {
       setNotification('Bu sifariş artıq işlənib');
       setNotificationType('warning');
       return;
     }
-    
+
     isProcessingPayment.current = true;
-    processedOrderIds.current.add(orderId);
+    processedOrderIds.current.add(lockKey);
     setLoading(true);
-    
+
+    const tableIdKey = String(modalOrder.tableId || '');
+    // Timer dərhal dayansın — eyni masanın bütün ghost session-ları UI-dan çıxsın
+    setSessions((prev) => prev.filter((s) => {
+      if (String(s._id) === String(sessionId)) return false;
+      if (tableIdKey && String(s.tableId) === tableIdKey) return false;
+      return true;
+    }));
+
     try {
-      // Calculate final total with applied product discounts
       const finalTotal = calculateFinalTotalWithProductDiscounts(
         modalOrder.hourTotal, modalOrder.selectedMenu, productDiscounts
       );
-      // Prepare order object with discounts (ALWAYS SEND ENDİRİMLİ TOTAL)
       const orderWithDiscount = {
         ...modalOrder,
+        sessionId: String(sessionId),
+        tableId: tableIdKey || modalOrder.tableId,
         total: finalTotal,
         productDiscounts: { ...productDiscounts },
-        orderId: orderId // Add unique order ID
+        orderId: `session_${sessionId}`,
       };
-      
-      // Add order to backend (with duplicate check)
-      try {
-        const orderRes = await apiClient.post('/order/AddOrder', orderWithDiscount);
-        const alerts = orderRes.data?.lowStockAlerts;
-        if (alerts?.length) {
-          alerts.forEach((p) => {
-            setNotification(`Az stok: ${p.name}`);
-            setNotificationType('warning');
-          });
-        }
-        const menuSummary = (modalOrder.selectedMenu || [])
-          .filter((i) => !i.isExtra)
-          .map((i) => `${i.name}×${i.quantity || 1}`)
-          .join(', ');
-        await logTableActivity(apiClient, `${getStaffName()} — ${modalOrder.tableName}: ödəniş ${finalTotal.toFixed(2)}₼ (${menuSummary || 'menyu yoxdur'})`, {
-          type: 'payment',
-          tableName: modalOrder.tableName,
-          total: finalTotal,
-          menu: menuSummary,
-        }, 'Order');
-      } catch (orderError) {
-        // If duplicate order error (409), still delete session and show message
-        if (orderError.response?.status === 409) {
-          // Duplicate order detected, session will be deleted anyway
-          setNotification('Bu sifariş artıq yaradılıb, session silindi');
+
+      const orderRes = await apiClient.post(
+        `/tablesession/${encodeURIComponent(String(sessionId))}/finish`,
+        orderWithDiscount
+      );
+      const alerts = orderRes.data?.lowStockAlerts;
+      if (alerts?.length) {
+        alerts.forEach((p) => {
+          setNotification(`Az stok: ${p.name}`);
           setNotificationType('warning');
-        } else {
-          throw orderError; // Re-throw other errors
-        }
+        });
       }
-      
-      // Delete session from backend (even if duplicate order)
-      try {
-        const sessionId = modalOrder.sessionId || (sessions.find(s => s.tableId === modalOrder.tableId)?._id);
-        if (sessionId) {
-          await apiClient.delete(`/tablesession/${sessionId}`);
-          // Remove from local sessions immediately
-          setSessions(prev => prev.filter(s => s._id !== sessionId));
-        }
-      } catch (deleteError) {
-        console.error('Session silinərkən xəta:', deleteError);
-        // Continue anyway - session might already be deleted
-      }
-      
-      // Close modal immediately
+
+      const menuSummary = (modalOrder.selectedMenu || [])
+        .filter((i) => !i.isExtra)
+        .map((i) => `${i.name}×${i.quantity || 1}`)
+        .join(', ');
+      await logTableActivity(apiClient, `${getStaffName()} — ${modalOrder.tableName}: ödəniş ${finalTotal.toFixed(2)}₼ (${menuSummary || 'menyu yoxdur'})`, {
+        type: 'payment',
+        tableName: modalOrder.tableName,
+        total: finalTotal,
+        menu: menuSummary,
+      }, 'Order');
+
       setModalOrder(null);
       setPaidAmount(0);
       setProductDiscounts({});
-      
-      setNotification('Ödəniş uğurla tamamlandı');
-      setNotificationType('info');
-      
-      // Clear notification after 2 seconds
+
+      if (orderRes.data?.alreadyFinished) {
+        setNotification('Bu masa artıq bitirilib — təkrar Accounts-a düşmədi');
+        setNotificationType('warning');
+      } else {
+        setNotification('Ödəniş uğurla tamamlandı');
+        setNotificationType('info');
+      }
+
       setTimeout(() => {
         setNotification('');
         setNotificationType('info');
-      }, 2000);
-      
-      // Clean up processed order ID after 10 seconds (prevent memory leak)
-      setTimeout(() => {
-        processedOrderIds.current.delete(orderId);
-      }, 10000);
-      
+      }, 2500);
     } catch (err) {
       console.error('Ödəniş tamamlanarkən xəta:', err);
+      processedOrderIds.current.delete(lockKey);
+
+      // Session geri qaytarılsın (serverdə aktiv qala bilər)
+      try {
+        const activeRes = await apiClient.get('/tablesession/Active');
+        if (Array.isArray(activeRes.data)) {
+          setSessions(activeRes.data);
+        }
+      } catch {
+        // ignore refresh error
+      }
+
       const errorMessage = err.response?.data?.error || err.message || 'Ödəniş tamamlanarkən xəta baş verdi';
       setNotification(errorMessage);
       setNotificationType('error');
-      
-      // Remove from processed list on error
-      processedOrderIds.current.delete(orderId);
-      
-      // Clear notification after 5 seconds for errors
+
       setTimeout(() => {
         setNotification('');
         setNotificationType('info');
       }, 5000);
     } finally {
       setLoading(false);
-      // Reset flag after a small delay to prevent rapid re-clicks
       setTimeout(() => {
         isProcessingPayment.current = false;
-      }, 1000); // Increased to 1 second for better protection
+      }, 1000);
     }
   };
 
@@ -1612,7 +1642,7 @@ const AdminTableManagePage = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 md:gap-8 mb-4 sm:mb-6 md:mb-8">
         {safeTables.length === 0 && <div className="col-span-2 text-gray-500">Heç bir masa əlavə edilməyib.</div>}
         {safeTables.map(table => {
-          const session = sessions.find(s => s.tableId === (table.id || table._id));
+          const session = sessions.find(s => String(s.tableId) === String(table.id || table._id));
           return (
             <div key={table.id || table._id} className={`relative flex flex-col bg-white shadow-lg rounded-xl sm:rounded-2xl p-3 sm:p-4 md:p-6 border-l-4 sm:border-l-8 ${session ? 'border-orange-500' : 'border-gray-200'} transition group`}
               style={{ minHeight: 'auto' }}>
@@ -1693,7 +1723,14 @@ const AdminTableManagePage = () => {
                 )}
               </div>
               {!session ? (
-                <button onClick={() => handleStartClick(table)} className="mt-3 sm:mt-4 px-4 sm:px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition w-full sm:w-fit text-sm sm:text-base">Başlat</button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => handleStartClick(table)}
+                  className="mt-3 sm:mt-4 px-4 sm:px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition w-full sm:w-fit text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? 'Açılır...' : 'Başlat'}
+                </button>
               ) : (
                 <div className="bg-orange-50 rounded-lg sm:rounded-xl p-3 sm:p-4 mt-2 flex-1 flex flex-col gap-2 border border-orange-200">
                   <div className="flex items-center gap-2 mb-1">
